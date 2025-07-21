@@ -1,5 +1,15 @@
 from datetime import datetime
 
+WEEKDAYS_RU = {
+    "Monday": "Понедельник",
+    "Tuesday": "Вторник",
+    "Wednesday": "Среда",
+    "Thursday": "Четверг",
+    "Friday": "Пятница",
+    "Saturday": "Суббота",
+    "Sunday": "Воскресенье"
+}
+
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
     Application,
@@ -14,7 +24,7 @@ import os
 
 from Services import get_available_dates, get_or_create_user, update_user_phone, get_user_bookings, \
     get_available_times_by_date, confirm_booking_bd, get_timeslots_by_date, get_event, get_all_events, \
-    update_booking_status
+    update_booking_status, clear_booking
 from db import init_db
 
 BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
@@ -88,8 +98,6 @@ def get_procedure_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-
-
 async def handle_procedure_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     procedure_id = int(query.data.split('_', 1)[1])
@@ -113,23 +121,27 @@ async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return SELECT_DATE
 
 
-def get_dates_keyboard(dates, current_page, page_size=7):
-    start = current_page * page_size
-    end = start + page_size
-    visible_dates = dates[start:end]
-
+def get_dates_keyboard(dates, current_page):
     keyboard = []
+
+    dates_per_page = 7
+    start = current_page * dates_per_page
+    end = start + dates_per_page
+    visible_dates = dates[start:end]
 
     for date in visible_dates:
         callback_data = f"select_date_{date.isoformat()}"
-        keyboard.append([InlineKeyboardButton(date.strftime("%d.%m.%Y"), callback_data=callback_data)])
+        date_str = date.strftime("%d.%m.%Y")
+        weekday_en = date.strftime("%A")
+        weekday_ru = WEEKDAYS_RU.get(weekday_en, weekday_en)
+        button_text = f"{date_str} ({weekday_ru})"
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=callback_data)])
 
     nav_buttons = []
-    if start > 0:
+    if current_page > 0:
         nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"change_date_page_{current_page - 1}"))
     if end < len(dates):
         nav_buttons.append(InlineKeyboardButton("➡️ Далее", callback_data=f"change_date_page_{current_page + 1}"))
-
     if nav_buttons:
         keyboard.append(nav_buttons)
 
@@ -221,10 +233,10 @@ async def show_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([
             InlineKeyboardButton(
                 f"{date_formatted} в {time_formatted} ({procedure} - {status_text})",
-                callback_data=f'show_booking_{id}'
+                callback_data=f'confirm_delete_{id}'
             )
         ])
-
+    bookings_text += "\n Если вы хотите отменить запись, нажмите на нее"
     keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data='back_to_menu')])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -233,7 +245,20 @@ async def show_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+async def confirm_delete_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    booking_id = int(query.data.replace("confirm_delete_", ""))
 
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ Да, удалить", callback_data=f'delete_booking_{booking_id}'),
+            InlineKeyboardButton("❌ Отмена", callback_data='my_bookings')
+        ]
+    ]
+    await query.edit_message_text(
+        "❗ Вы уверены, что хотите отменить эту запись?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -330,7 +355,12 @@ async def handle_selected_date(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return SELECT_TIME
-
+async def delete_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    booking_id = int(query.data.replace("delete_booking_", ""))
+    clear_booking(booking_id)
+    await query.answer("Запись отменена ❌")
+    await show_bookings(update, context)
 
 async def handle_date_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -398,7 +428,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_main_menu(update, context)
     elif query.data.startswith('procedure_'):
         await handle_procedure_selection(update, context)
-    elif query.data.startswith('select_date_'):  # <-- вот здесь было 'date_', исправил на 'select_date_'
+    elif query.data.startswith('select_date_'):
         await handle_selected_date(update, context)
     elif query.data.startswith('time_'):
         await handle_time_selection(update, context)
@@ -406,6 +436,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await confirm_booking(update, context)
     elif query.data == 'cancel_booking':
         await show_main_menu(update, context)
+    elif query.data.startswith('change_date_page_'):
+        await handle_date_pagination(update, context)
+    elif query.data.startswith('confirm_delete_'):
+        await confirm_delete_booking(update, context)
+    elif query.data.startswith('delete_booking_'):
+        await delete_booking(update, context)
 
 
 def run_bot():
@@ -444,6 +480,8 @@ def run_bot():
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))  # отдельно ловим контакт
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(booking_conv_handler)
+    application.add_handler(CallbackQueryHandler(confirm_delete_booking, pattern="^confirm_delete_"))
+    application.add_handler(CallbackQueryHandler(delete_booking, pattern="^delete_booking_"))
 
     application.run_polling()
 if __name__ == '__main__':

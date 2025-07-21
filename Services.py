@@ -149,3 +149,14 @@ def update_booking_status():
 
     session.commit()
     session.close()
+
+def clear_booking(booking_id):
+    session = Session()
+    time_slot = session.query(TimeSlot).filter_by(id=booking_id).first()
+    if time_slot:
+        time_slot.user_id = None
+        time_slot.event_id = None
+        time_slot.isActive = True
+        session.commit()
+
+    session.close()
