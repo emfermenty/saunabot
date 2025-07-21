@@ -32,16 +32,16 @@ def get_all_events():
     return events
 
 
-def get_available_dates(page):
+def get_available_dates():
     session = Session()
     now = datetime.now()
-    end = now + timedelta(days=7)
     dates = (
         session.query(TimeSlot.slot_datetime)
-        .filter(TimeSlot.slot_datetime >= now, TimeSlot.slot_datetime <= end, TimeSlot.isActive == True)
+        .filter(TimeSlot.slot_datetime >= now, TimeSlot.isActive == True)
         .all()
     )
     session.close()
+    # Получаем только даты (без времени), сортируем
     unique_dates = sorted({dt[0].date() for dt in dates})
     return unique_dates
 

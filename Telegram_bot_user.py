@@ -97,20 +97,44 @@ async def handle_procedure_selection(update: Update, context: ContextTypes.DEFAU
     await select_date(update, context)
 
 async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    dates = get_available_dates()
+    if not dates:
+        await update.callback_query.edit_message_text("Нет доступных дат для записи.")
+        return SELECT_PROCEDURE  # или показать меню
+
+    context.user_data["dates"] = dates
+    context.user_data["date_page"] = 0
+
+    keyboard = get_dates_keyboard(dates, 0)
     await update.callback_query.edit_message_text(
         "Выберите дату для записи:",
-        reply_markup=get_dates_keyboard()
+        reply_markup=keyboard
     )
     return SELECT_DATE
 
-def get_dates_keyboard(page=1):
-    unique_dates = get_available_dates(page)
+
+def get_dates_keyboard(dates, current_page, page_size=7):
+    start = current_page * page_size
+    end = start + page_size
+    visible_dates = dates[start:end]
+
     keyboard = []
-    for date in unique_dates:
-        date_str = date.strftime("%d.%m.%Y")
-        weekday = date.strftime("%a")
-        keyboard.append([InlineKeyboardButton(f"{date_str} ({weekday})", callback_data=f'date_{date.strftime("%Y-%m-%d")}')])
-    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data='back_to_menu')])
+
+    for date in visible_dates:
+        callback_data = f"select_date_{date.isoformat()}"
+        keyboard.append([InlineKeyboardButton(date.strftime("%d.%m.%Y"), callback_data=callback_data)])
+
+    nav_buttons = []
+    if start > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"change_date_page_{current_page - 1}"))
+    if end < len(dates):
+        nav_buttons.append(InlineKeyboardButton("➡️ Далее", callback_data=f"change_date_page_{current_page + 1}"))
+
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+
+    keyboard.append([InlineKeyboardButton("⬅️ В меню", callback_data="back_to_menu")])
+
     return InlineKeyboardMarkup(keyboard)
 
 async def handle_new_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -223,7 +247,7 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     confirm_booking_bd(procedure_raw, user_id, slot_id)
 
     event = get_event(procedure_raw)
-    date_formatted = datetime.strptime(date, "%Y-%m-%d").strftime("%d.%m.%Y")
+    date_formatted = date.strftime("%d.%m.%Y")
 
     await query.edit_message_text(
         f"✅ Вы успешно записаны!\n\nДата: {date_formatted}\nВремя: {time}\nПроцедура: {event.title}",
@@ -260,6 +284,68 @@ async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Мы работаем ежедневно с 10:00 до 22:00",
         reply_markup=get_main_menu()
     )
+
+async def show_available_dates(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    dates = get_available_dates()
+    page = 0
+
+    if not dates:
+        await query.edit_message_text("Нет доступных дат.")
+        return
+
+    context.user_data["dates"] = dates  # сохраняем список в context
+    context.user_data["date_page"] = page
+
+    keyboard = get_dates_keyboard(dates, page)
+    await query.edit_message_text("Выберите дату:", reply_markup=keyboard)
+
+async def handle_selected_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    date_str = query.data.replace("select_date_", "")
+    selected_date = datetime.fromisoformat(date_str).date()
+    context.user_data["selected_date"] = selected_date
+
+    # Вызываем показ слотов времени, как в handle_date_selection
+    slots = get_timeslots_by_date(selected_date.isoformat())
+
+    if not slots:
+        await query.edit_message_text(f"На {selected_date.strftime('%d.%m.%Y')} нет доступных слотов.")
+        return SELECT_DATE
+
+    context.user_data["available_slots"] = {
+        slot.id: slot.slot_datetime.strftime("%H:%M") for slot in slots
+    }
+
+    keyboard = [
+        [InlineKeyboardButton(slot.slot_datetime.strftime("%H:%M"), callback_data=f"time_{slot.id}")]
+        for slot in slots
+    ]
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data='select_date')])
+
+    await query.edit_message_text(
+        text=f"Вы выбрали дату: {selected_date.strftime('%d.%m.%Y')}\n\nВыберите время:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return SELECT_TIME
+
+
+async def handle_date_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+
+    new_page = int(data.replace("change_date_page_", ""))
+    dates = context.user_data.get("dates")
+
+    if not dates:
+        dates = get_available_dates()
+        context.user_data["dates"] = dates
+
+    context.user_data["date_page"] = new_page
+    keyboard = get_dates_keyboard(dates, new_page)
+    await query.edit_message_text("Выберите дату:", reply_markup=keyboard)
 
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.callback_query.from_user.id
@@ -299,22 +385,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
 
     if query.data == 'select_date':
-        await handle_new_booking(update, context)
+        await query.edit_message_text(
+            "Выберите процедуру:",
+            reply_markup=get_procedure_keyboard())
     elif query.data == 'my_bookings':
         await show_bookings(update, context)
-        pass
     elif query.data == 'profile':
         await show_profile(update, context)
-        pass
     elif query.data == 'contact_us':
         await contact_us(update, context)
-        pass
     elif query.data == 'back_to_menu':
         await show_main_menu(update, context)
     elif query.data.startswith('procedure_'):
         await handle_procedure_selection(update, context)
-    elif query.data.startswith('date_'):
-        await handle_date_selection(update, context)
+    elif query.data.startswith('select_date_'):  # <-- вот здесь было 'date_', исправил на 'select_date_'
+        await handle_selected_date(update, context)
     elif query.data.startswith('time_'):
         await handle_time_selection(update, context)
     elif query.data == 'confirm_booking':
@@ -322,33 +407,44 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'cancel_booking':
         await show_main_menu(update, context)
 
+
 def run_bot():
     init_db()
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
     booking_conv_handler = ConversationHandler(
         entry_points=[
-            CommandHandler("start", start),
-            CallbackQueryHandler(ask_for_contact, pattern='^share_phone$')
+            CallbackQueryHandler(handle_procedure_selection, pattern=r'^procedure_\d+$'),
+            CallbackQueryHandler(handle_selected_date, pattern=r'^select_date_\d{4}-\d{2}-\d{2}$'),
+            CallbackQueryHandler(handle_time_selection, pattern=r'^time_\d+$'),
+            CallbackQueryHandler(confirm_booking, pattern='^confirm_booking$'),
         ],
         states={
-            SELECT_PROCEDURE: [MessageHandler(filters.CONTACT, handle_contact)],
-            SELECT_DATE: [CallbackQueryHandler(handle_date_selection, pattern=r'^date_\d{4}-\d{2}-\d{2}$')],
-            SELECT_TIME: [CallbackQueryHandler(handle_time_selection, pattern=r'^time_\d{2}:\d{2}$')],
-            CONFIRM_BOOKING: [CallbackQueryHandler(confirm_booking, pattern='^confirm_booking$')],
+            SELECT_PROCEDURE: [
+                CallbackQueryHandler(handle_procedure_selection, pattern=r'^procedure_\d+$')
+            ],
+            SELECT_DATE: [
+                CallbackQueryHandler(handle_selected_date, pattern=r'^select_date_\d{4}-\d{2}-\d{2}$')
+            ],
+            SELECT_TIME: [
+                CallbackQueryHandler(handle_time_selection, pattern=r'^time_\d+$')
+            ],
+            CONFIRM_BOOKING: [
+                CallbackQueryHandler(confirm_booking, pattern='^confirm_booking$')
+            ],
         },
         fallbacks=[
-            CallbackQueryHandler(show_main_menu, pattern='^back_to_menu$'),
+            CallbackQueryHandler(show_main_menu, pattern='^back_to_menu$')
         ],
         per_message=False,
         allow_reentry=True,
     )
-
-    application.add_handler(booking_conv_handler)
-    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CallbackQueryHandler(ask_for_contact, pattern='^share_phone$'))
+    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))  # отдельно ловим контакт
     application.add_handler(CallbackQueryHandler(button_handler))
+    application.add_handler(booking_conv_handler)
 
     application.run_polling()
-
 if __name__ == '__main__':
     run_bot()
