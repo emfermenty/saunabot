@@ -31,7 +31,7 @@ def get_all_events():
     session.close()
     return events
 
-
+'''получение даты'''
 def get_available_dates():
     session = Session()
     now = datetime.now()
@@ -56,16 +56,20 @@ def get_user_bookings(telegram_id):
     session.close()
     return bookings
 
+'''получение времени в дате + 3 часа'''
 def get_available_times_by_date(date_str: str):
     session = Session()
     date = datetime.strptime(date_str, "%Y-%m-%d").date()
+
+    min_datetime = datetime.now() + timedelta(hours=3)
 
     slots = session.query(TimeSlot).filter(
         extract('year', TimeSlot.slot_datetime) == date.year,
         extract('month', TimeSlot.slot_datetime) == date.month,
         extract('day', TimeSlot.slot_datetime) == date.day,
         TimeSlot.user_id == None,
-        TimeSlot.isActive == True
+        TimeSlot.isActive == True,
+        TimeSlot.slot_datetime >= min_datetime
     ).order_by(TimeSlot.slot_datetime).all()
 
     session.close()
@@ -93,18 +97,6 @@ def create_hourly_timeslots(days: int = 30):
     session.commit()
     session.close()
 
-def get_timeslots_by_date(date_str: str):
-    session = Session()
-    date = datetime.strptime(date_str, "%Y-%m-%d").date()
-    slots = session.query(TimeSlot).filter(
-        extract('year', TimeSlot.slot_datetime) == date.year,
-        extract('month', TimeSlot.slot_datetime) == date.month,
-        extract('day', TimeSlot.slot_datetime) == date.day,
-        TimeSlot.user_id == None,
-        TimeSlot.isActive == True
-    ).order_by(TimeSlot.slot_datetime).all()
-    session.close()
-    return slots
 
 def confirm_booking_bd(procedure, user_id, slot_id):
     session = Session()

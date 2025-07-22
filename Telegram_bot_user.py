@@ -24,7 +24,7 @@ from telegram.ext import (
 import os
 
 from Services import get_available_dates, get_or_create_user, update_user_phone, get_user_bookings, \
-    get_available_times_by_date, confirm_booking_bd, get_timeslots_by_date, get_event, get_all_events, \
+    get_available_times_by_date, confirm_booking_bd, get_event, get_all_events, \
     update_booking_status, clear_booking
 from db import init_db
 ADMIN_PANEL, ADMIN_VIEW_BOOKINGS, ADMIN_VIEW_USERS, ADMIN_EDIT_BOOKING = range(4, 8)
@@ -36,30 +36,6 @@ WELCOME_IMAGE = "для тг.jpg"
 
 # Conversation states
 SELECT_PROCEDURE, SELECT_DATE, SELECT_TIME, CONFIRM_BOOKING = range(4)
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    get_or_create_user(user.id)
-    welcome_text = (
-        f"Здравствуйте, {user.first_name}!\n\n"
-        f"Это бот для онлайн-записи в баню \"{BANYA_NAME}\" "
-        f"по адресу: {BANYA_ADDRESS}.\n\n"
-        "Для начала записи, пожалуйста, поделитесь своим номером телефона:"
-    )
-    keyboard = [
-        [InlineKeyboardButton("📱 Поделиться номером", callback_data='share_phone')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
-    if os.path.exists(WELCOME_IMAGE):
-        try:
-            with open(WELCOME_IMAGE, 'rb') as photo:
-                await update.message.reply_photo(photo=InputFile(photo), caption=welcome_text, reply_markup=reply_markup)
-        except Exception as e:
-            print(f"Ошибка при отправке изображения: {e}")
-            await update.message.reply_text(welcome_text, reply_markup=reply_markup)
-    else:
-        await update.message.reply_text(welcome_text, reply_markup=reply_markup)
 
 async def ask_for_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
@@ -170,7 +146,7 @@ async def handle_date_selection(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data["selected_date"] = date
 
     # Получаем доступные слоты
-    slots = get_timeslots_by_date(date)
+    slots = get_available_times_by_date(date)
 
     # Сохраняем доступные слоты: id → время
     context.user_data["available_slots"] = {
@@ -397,7 +373,7 @@ async def handle_selected_date(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data["selected_date"] = selected_date
 
     # Вызываем показ слотов времени, как в handle_date_selection
-    slots = get_timeslots_by_date(selected_date.isoformat())
+    slots = get_available_times_by_date(selected_date.isoformat())
 
     if not slots:
         await query.edit_message_text(f"На {selected_date.strftime('%d.%m.%Y')} нет доступных слотов.")
@@ -532,47 +508,3 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await confirm_delete_booking(update, context)
     elif query.data.startswith('delete_booking_'):
         await delete_booking(update, context)
-
-
-def run_bot():
-    init_db()
-    application = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    booking_conv_handler = ConversationHandler(
-        entry_points=[
-            CallbackQueryHandler(handle_procedure_selection, pattern=r'^procedure_\d+$'),
-            CallbackQueryHandler(handle_selected_date, pattern=r'^select_date_\d{4}-\d{2}-\d{2}$'),
-            CallbackQueryHandler(handle_time_selection, pattern=r'^time_\d+$'),
-            CallbackQueryHandler(confirm_booking, pattern='^confirm_booking$'),
-        ],
-        states={
-            SELECT_PROCEDURE: [
-                CallbackQueryHandler(handle_procedure_selection, pattern=r'^procedure_\d+$')
-            ],
-            SELECT_DATE: [
-                CallbackQueryHandler(handle_selected_date, pattern=r'^select_date_\d{4}-\d{2}-\d{2}$')
-            ],
-            SELECT_TIME: [
-                CallbackQueryHandler(handle_time_selection, pattern=r'^time_\d+$')
-            ],
-            CONFIRM_BOOKING: [
-                CallbackQueryHandler(confirm_booking, pattern='^confirm_booking$')
-            ],
-        },
-        fallbacks=[
-            CallbackQueryHandler(show_main_menu, pattern='^back_to_menu$')
-        ],
-        per_message=False,
-        allow_reentry=True,
-    )
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(ask_for_contact, pattern='^share_phone$'))
-    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))  # отдельно ловим контакт
-    application.add_handler(CallbackQueryHandler(button_handler))
-    application.add_handler(booking_conv_handler)
-    application.add_handler(CallbackQueryHandler(confirm_delete_booking, pattern="^confirm_delete_"))
-    application.add_handler(CallbackQueryHandler(delete_booking, pattern="^delete_booking_"))
-
-    application.run_polling()
-if __name__ == '__main__':
-    run_bot()

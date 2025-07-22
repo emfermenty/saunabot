@@ -1,5 +1,5 @@
 from Services import create_hourly_timeslots
-from Telegram_bot_user import run_bot
+from start_handler import run_bot
 
 def main():
     #create_hourly_timeslots()
