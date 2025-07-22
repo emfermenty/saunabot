@@ -1,3 +1,4 @@
+#telegram_bot_user.py
 from datetime import datetime
 
 WEEKDAYS_RU = {
@@ -26,7 +27,7 @@ from Services import get_available_dates, get_or_create_user, update_user_phone,
     get_available_times_by_date, confirm_booking_bd, get_timeslots_by_date, get_event, get_all_events, \
     update_booking_status, clear_booking
 from db import init_db
-
+ADMIN_PANEL, ADMIN_VIEW_BOOKINGS, ADMIN_VIEW_USERS, ADMIN_EDIT_BOOKING = range(4, 8)
 BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
 BANYA_NAME = "Живой пар"
 BANYA_ADDRESS = "Комсомольский проспект, 15, г. Краснокамск"
@@ -94,9 +95,11 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def get_procedure_keyboard():
     keyboard = [
         [InlineKeyboardButton("🔥 Живой пар", callback_data='procedure_1')],
-        [InlineKeyboardButton("💧 Синусоида", callback_data='procedure_2')]
+        [InlineKeyboardButton("💧 Синусоида", callback_data='procedure_2')],
+        [InlineKeyboardButton("⬅️ Назад", callback_data='back_to_menu')]  # Добавлена кнопка назад
     ]
     return InlineKeyboardMarkup(keyboard)
+
 
 async def handle_procedure_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -302,13 +305,70 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    admin_username = "@itrustedyou"  # Замените на реальный username администратора
+    
     await update.callback_query.edit_message_text(
         f"📞 Контакты бани \"{BANYA_NAME}\":\n\n"
         f"Телефон: {CONTACT_PHONE}\n"
         f"Адрес: {BANYA_ADDRESS}\n\n"
-        "Мы работаем ежедневно с 10:00 до 22:00",
+        f"Мы работаем ежедневно с 10:00 до 22:00\n\n"
+        f"По всем вопросам обращайтесь к администратору: {admin_username}",
         reply_markup=get_main_menu()
     )
+
+async def show_all_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    bookings = get_all_bookings()
+    
+    if not bookings:
+        await update.callback_query.edit_message_text(
+            "Нет активных записей.",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data='admin_panel')]])
+        )
+        return
+    
+    bookings_text = "📋 Все активные записи:\n\n"
+    for booking in bookings:
+        id, slot_datetime, procedure, user_id, phone, is_active = booking
+        date_str = slot_datetime.strftime("%d.%m.%Y %H:%M")
+        status = "✅ Активна" if is_active else "❌ Отменена"
+        bookings_text += f"🔹 {date_str} - {procedure}\n👤 ID: {user_id}, ☎️ {phone}\nID записи: {id} ({status})\n\n"
+    
+    keyboard = [
+        [InlineKeyboardButton("✏️ Изменить запись", callback_data='admin_edit_booking')],
+        [InlineKeyboardButton("⬅️ Назад", callback_data='admin_panel')]
+    ]
+    
+    await update.callback_query.edit_message_text(
+        bookings_text,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ADMIN_VIEW_BOOKINGS
+
+async def show_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    users = get_all_users()
+    
+    users_text = "👥 Все пользователи:\n\n"
+    for user in users:
+        admin_status = " (Админ)" if user.is_admin else ""
+        users_text += f"👤 ID: {user.telegram_id}{admin_status}\n☎️ {user.phone or 'Не указан'}\n\n"
+    
+    keyboard = [
+        [InlineKeyboardButton("👑 Назначить админом", callback_data='admin_promote_user')],
+        [InlineKeyboardButton("⬅️ Назад", callback_data='admin_panel')]
+    ]
+    
+    await update.callback_query.edit_message_text(
+        users_text,
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ADMIN_VIEW_USERS
+
+async def ask_booking_id_to_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.edit_message_text(
+        "Введите ID записи, которую хотите изменить:",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data='admin_all_bookings')]])
+    )
+    return ADMIN_EDIT_BOOKING
 
 async def show_available_dates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -324,6 +384,9 @@ async def show_available_dates(update: Update, context: ContextTypes.DEFAULT_TYP
 
     keyboard = get_dates_keyboard(dates, page)
     await query.edit_message_text("Выберите дату:", reply_markup=keyboard)
+
+
+
 
 async def handle_selected_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -388,11 +451,38 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    # Получаем информацию о пользователе Telegram
+    tg_user = update.callback_query.from_user
+    first_name = tg_user.first_name or ""
+    last_name = tg_user.last_name or ""
+    full_name = f"{first_name} {last_name}".strip()
+    username = f"@{tg_user.username}" if tg_user.username else "не указан"
+    
     await update.callback_query.edit_message_text(
-        f"👤 Ваш профиль:\n\nтелеграмid: {user.telegram_id}\nТелефон: {user.phone}",
+        f"👤 Ваш профиль:\n\n"
+        f"Имя: {full_name}\n"
+        f"Telegram ID: {user_id}\n"
+        f"Username: {username}\n"
+        f"Телефон: {user.phone if user.phone else 'не указан'}",
         reply_markup=get_main_menu()
     )
 
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_admin(update.effective_user.id):
+        await update.callback_query.answer("У вас нет прав администратора!")
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("📋 Все записи", callback_data='admin_all_bookings')],
+        [InlineKeyboardButton("👥 Все пользователи", callback_data='admin_all_users')],
+        [InlineKeyboardButton("⬅️ Назад", callback_data='back_to_menu')]
+    ]
+    
+    await update.callback_query.edit_message_text(
+        "Админ-панель:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ADMIN_PANEL
 
 def get_confirmation_keyboard():
     keyboard = [
