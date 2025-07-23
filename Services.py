@@ -75,23 +75,32 @@ def get_available_times_by_date(date_str: str):
     session.close()
     return slots
 
-def create_hourly_timeslots(days: int = 30):
+'''должно запускать только при первом запуске'''
+def create_hourly_timeslots(days: int = 5):
     session = Session()
     today = datetime.now().date()
 
     new_slots = []
+    day_offset = 0
+    created_days = 0
 
-    for day_offset in range(days):
+    while created_days < days:
         current_date = today + timedelta(days=day_offset)
-        for hour in range(9, 22):  # 22 не включается, последний слот в 21:00
-            slot_dt = datetime.combine(current_date, time(hour=hour))
-            slot = TimeSlot(
-                slot_datetime=slot_dt,
-                user_id=None,
-                event_id=None,
-                isActive=True
-            )
-            new_slots.append(slot)
+        weekday = current_date.weekday()  # Пн = 0, ..., Вс = 6
+
+        if weekday < 5:  # Только понедельник-пятница
+            for hour in range(9, 22):  # Слоты с 9:00 до 21:00
+                slot_dt = datetime.combine(current_date, time(hour=hour))
+                slot = TimeSlot(
+                    slot_datetime=slot_dt,
+                    user_id=None,
+                    event_id=None,
+                    isActive=True
+                )
+                new_slots.append(slot)
+            created_days += 1  # Учитываем только будние дни
+
+        day_offset += 1  # Переход к следующей дате
 
     session.add_all(new_slots)
     session.commit()

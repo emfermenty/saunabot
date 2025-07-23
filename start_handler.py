@@ -62,7 +62,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     db_user = get_or_create_user(tg_id)
 
-    if db_user and db_user.phone and db_user.role == UserRole.USER:
+    if db_user.phone and db_user.role == UserRole.USER:
         await show_main_menu(update, context)
         return
     #elif db_user.role == UserRole.ADMIN:
