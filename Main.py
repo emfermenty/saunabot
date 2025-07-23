@@ -1,5 +1,8 @@
 #ТОЧКА ВХОДА В ПРОГРАММУ
+import asyncio
 from datetime import datetime, timedelta
+
+from Services import create_hourly_timeslots
 from start_handler import run_bot
 
 def main():

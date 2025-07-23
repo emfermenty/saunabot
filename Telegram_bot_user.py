@@ -315,8 +315,6 @@ async def show_available_dates(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.edit_message_text("Выберите дату:", reply_markup=keyboard)
 
 
-
-
 async def handle_selected_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()

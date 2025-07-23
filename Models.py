@@ -11,9 +11,8 @@ class UserRole(PyEnum):
     ADMIN = "админ"
 
 class SlotStatus(PyEnum):
-    PENDING = "Ожидание",
-    CONFIRMED = "Подтверждено",
-    CANCELED = "Отменено"
+    PENDING = "Ожидание"
+    CONFIRMED = "Подтверждено"
 
 class User(Base):
     __tablename__ = 'users'
@@ -47,6 +46,7 @@ class TimeSlot(Base):
     isActive = Column(Boolean, default=True)
     comment = Column(String, nullable=True)
     status = Column(Enum(SlotStatus, name="slot_status"), nullable=True)
+    created_at = Column(DateTime, nullable=True)
     # Связи
     event = relationship("Event", back_populates="time_slots")
     user = relationship("User", back_populates="time_slots")
