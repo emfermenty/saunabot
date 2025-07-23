@@ -1,9 +1,10 @@
 # services.py
+#ФУНКЦИИ ДЛЯ ВЗАИМОДЕЙСТВИЯ С БАЗОЙ ДАННЫХ
+#ЗДЕСЬ ФУНКЦИИ КОТОРЫЕ делают некий select/update/delete
 from datetime import datetime, timedelta, time
-from Models import User, Event, TimeSlot
+from Models import User, Event, TimeSlot, SlotStatus
 from db import Session
 from sqlalchemy import func, extract
-
 
 def get_or_create_user(telegram_id):
     session = Session()
@@ -15,7 +16,6 @@ def get_or_create_user(telegram_id):
     session.close()
     return user
 
-
 def update_user_phone(telegram_id, phone):
     session = Session()
     user = session.query(User).filter_by(telegram_id=telegram_id).first()
@@ -23,7 +23,6 @@ def update_user_phone(telegram_id, phone):
         user.phone = phone
         session.commit()
     session.close()
-
 
 def get_all_events():
     session = Session()
@@ -112,6 +111,7 @@ def confirm_booking_bd(procedure, user_id, slot_id):
     slot = session.query(TimeSlot).get(slot_id)
     slot.user_id = user_id
     slot.event_id = int(procedure) if procedure else None
+    slot.status = SlotStatus.PENDING
     session.commit()
     session.close()
 

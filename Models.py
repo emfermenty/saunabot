@@ -1,3 +1,4 @@
+#ЗДЕСЬ МОДЕЛИ ОТРАЖАЮЩИЕ ТАБЛИЦУ БАЗЫ ДАННЫХ
 from sqlalchemy import create_engine, Column, Integer, String, ForeignKey, DateTime, Boolean, Enum
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from sqlalchemy import Enum
@@ -45,7 +46,7 @@ class TimeSlot(Base):
     slot_datetime = Column(DateTime, nullable=False, unique=True)
     isActive = Column(Boolean, default=True)
     comment = Column(String, nullable=True)
-    SlotStatus = Column(Enum(SlotStatus, name="slot_status"), nullable=True)
+    status = Column(Enum(SlotStatus, name="slot_status"), nullable=True)
     # Связи
     event = relationship("Event", back_populates="time_slots")
     user = relationship("User", back_populates="time_slots")

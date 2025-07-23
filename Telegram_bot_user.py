@@ -1,4 +1,4 @@
-#telegram_bot_user.py
+#здесь кнопки для панели пользователя
 from datetime import datetime
 
 WEEKDAYS_RU = {
@@ -292,53 +292,6 @@ async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=get_main_menu()
     )
 
-async def show_all_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    bookings = get_all_bookings()
-    
-    if not bookings:
-        await update.callback_query.edit_message_text(
-            "Нет активных записей.",
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Назад", callback_data='admin_panel')]])
-        )
-        return
-    
-    bookings_text = "📋 Все активные записи:\n\n"
-    for booking in bookings:
-        id, slot_datetime, procedure, user_id, phone, is_active = booking
-        date_str = slot_datetime.strftime("%d.%m.%Y %H:%M")
-        status = "✅ Активна" if is_active else "❌ Отменена"
-        bookings_text += f"🔹 {date_str} - {procedure}\n👤 ID: {user_id}, ☎️ {phone}\nID записи: {id} ({status})\n\n"
-    
-    keyboard = [
-        [InlineKeyboardButton("✏️ Изменить запись", callback_data='admin_edit_booking')],
-        [InlineKeyboardButton("⬅️ Назад", callback_data='admin_panel')]
-    ]
-    
-    await update.callback_query.edit_message_text(
-        bookings_text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    return ADMIN_VIEW_BOOKINGS
-
-async def show_all_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    users = get_all_users()
-    
-    users_text = "👥 Все пользователи:\n\n"
-    for user in users:
-        admin_status = " (Админ)" if user.is_admin else ""
-        users_text += f"👤 ID: {user.telegram_id}{admin_status}\n☎️ {user.phone or 'Не указан'}\n\n"
-    
-    keyboard = [
-        [InlineKeyboardButton("👑 Назначить админом", callback_data='admin_promote_user')],
-        [InlineKeyboardButton("⬅️ Назад", callback_data='admin_panel')]
-    ]
-    
-    await update.callback_query.edit_message_text(
-        users_text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    return ADMIN_VIEW_USERS
-
 async def ask_booking_id_to_edit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.edit_message_text(
         "Введите ID записи, которую хотите изменить:",
@@ -442,23 +395,6 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Телефон: {user.phone if user.phone else 'не указан'}",
         reply_markup=get_main_menu()
     )
-
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        await update.callback_query.answer("У вас нет прав администратора!")
-        return
-    
-    keyboard = [
-        [InlineKeyboardButton("📋 Все записи", callback_data='admin_all_bookings')],
-        [InlineKeyboardButton("👥 Все пользователи", callback_data='admin_all_users')],
-        [InlineKeyboardButton("⬅️ Назад", callback_data='back_to_menu')]
-    ]
-    
-    await update.callback_query.edit_message_text(
-        "Админ-панель:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-    return ADMIN_PANEL
 
 def get_confirmation_keyboard():
     keyboard = [

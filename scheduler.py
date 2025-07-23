@@ -1,3 +1,4 @@
+#ЭТО НЕ ТРОГАТЬ (планировщик делает дима)
 from datetime import datetime, timedelta
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
