@@ -11,38 +11,55 @@ from sqlalchemy import DateTime
 
 from Models import TimeSlot, SlotStatus, User
 from db import Session
-from scheduler_handler import send_reminder_to_user, notify_admin_if_needed, notify_admin_signed_3_times
+from scheduler.scheduler_handler import send_reminder_to_user, notify_admin_if_needed, notify_admin_signed_3_times
 
 scheduler = AsyncIOScheduler()
 
 async def send_reminders_to_users(application):
-    session = Session()
-    reminder_time = DateTime.now + timedelta(hours=2)
+    print("[scheduler] send_reminders_to_users START")
 
+    tz = ZoneInfo("Asia/Yekaterinburg")
+    now = datetime.now(tz)
+    reminder_start = now + timedelta(hours=2) - timedelta(minutes=1)
+    reminder_end = now + timedelta(hours=2) + timedelta(minutes=1)
+
+    print(f"[scheduler] now: {now}, checking window: {reminder_start} - {reminder_end}")
+
+    session = Session()
     slots = session.query(TimeSlot).filter(
-        TimeSlot.slot_datetime.between(DateTime.now + timedelta(minutes=119), reminder_time),
-        TimeSlot.status == SlotStatus.PENDING
+        TimeSlot.slot_datetime.between(reminder_start, reminder_end),
+        TimeSlot.status == SlotStatus.PENDING,
+        TimeSlot.isActive == True
     ).all()
+
+    print(f"[scheduler] found {len(slots)} slot(s)")
+
     for slot in slots:
+        print(f"[scheduler] notifying user {slot.user_id} about {slot.slot_datetime}")
         await send_reminder_to_user(application, slot.user.telegram_id, slot)
+
     session.close()
 
 async def notify_admin_about_unconfirmed_slots(application):
     session = Session()
-    too_late_time = DateTime.now - timedelta(hours=1)
+    now = datetime.now()
+    print("notify_admin_about_unconfirmed_slots")
+    check_window_start = now + timedelta(minutes=59)
+    check_window_end = now + timedelta(hours=1, minutes=1)
 
     unconfirmed_slots = session.query(TimeSlot).filter(
-        TimeSlot.slot_datetime <= too_late_time,
+        TimeSlot.slot_datetime.between(check_window_start, check_window_end),
         TimeSlot.status == SlotStatus.PENDING,
         TimeSlot.isActive == True
     ).all()
 
     for slot in unconfirmed_slots:
         await notify_admin_if_needed(application, slot)
-    session = Session()
+    session.close()
 async def deactivate_past_slots(application):
     session = Session()
     now = datetime.utcnow() + timedelta(hours=5)  # Asia/Yekaterinburg
+    print("deactivate_past_slots")
     past_slots = session.query(TimeSlot).filter(
         TimeSlot.slot_datetime < now,
         TimeSlot.isActive == True
@@ -106,12 +123,28 @@ def create_new_workday_slots(application):
     session.close()
 
 def configure_scheduler(application):
-    # Используй объект scheduler, а не тип
-    scheduler.add_job(send_reminders_to_users, IntervalTrigger(hours=1), kwargs={"application": application})
-    scheduler.add_job(notify_admin_about_unconfirmed_slots, IntervalTrigger(hours=1), kwargs={"application": application})
-    scheduler.add_job(deactivate_past_slots, IntervalTrigger(hours=1), kwargs={"application": application})
-    scheduler.add_job(check_multiple_bookings, IntervalTrigger(minutes=1), kwargs={"application": application})
-    scheduler.add_job(create_new_workday_slots, CronTrigger(hour=0, minute=0, timezone="Asia/Yekaterinburg"), kwargs={"application": application})
+    scheduler.add_job(
+        send_reminders_to_users,
+        CronTrigger(minute=6, timezone="Asia/Yekaterinburg"),
+        kwargs={"application": application})
+    scheduler.add_job(
+        notify_admin_about_unconfirmed_slots,
+        CronTrigger(minute=0, timezone="Asia/Yekaterinburg"),
+        kwargs={"application": application}
+    )
+    scheduler.add_job(
+        deactivate_past_slots,
+        CronTrigger(minute=0, timezone="Asia/Yekaterinburg"),
+        kwargs={"application": application}
+    )
+    scheduler.add_job(
+        check_multiple_bookings,
+        IntervalTrigger(minutes=1),
+        kwargs={"application": application})
+    scheduler.add_job(
+        create_new_workday_slots,
+        CronTrigger(hour=0, minute=0, timezone="Asia/Yekaterinburg"),
+        kwargs={"application": application})
 
 def start_scheduler():
     scheduler.start()

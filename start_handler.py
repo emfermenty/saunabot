@@ -1,15 +1,9 @@
 # start_handler.py
-import os
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
-from telegram.ext import ContextTypes
 
-from Services import get_or_create_user
 from Telegram_bot_user import *
-import asyncio
 from Models import *
-from scheduler import check_multiple_bookings, create_new_workday_slots, \
-    configure_scheduler, start_scheduler
-from scheduler_handler import button_callback_scheduler
+from scheduler.scheduler import configure_scheduler, start_scheduler
+from scheduler.scheduler_handler import button_callback_scheduler
 
 from Telegram_bot_admin import show_admin_menu
 from Telegram_bot_admin import setup_admin_handlers
@@ -69,7 +63,7 @@ def run_bot():
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(booking_conv_handler)
-    application.add_handler(CallbackQueryHandler(button_callback_scheduler))
+    application.add_handler(CallbackQueryHandler(button_callback_scheduler, pattern=r'^(confirmfinal_|cancelfinal_).+'))
     application.add_handler(CallbackQueryHandler(confirm_delete_booking, pattern="^confirm_delete_"))
     application.add_handler(CallbackQueryHandler(delete_booking, pattern="^delete_booking_"))
     

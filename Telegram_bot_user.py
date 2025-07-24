@@ -1,6 +1,8 @@
 # Telegram_bot_user.py
 from datetime import datetime
 
+from Telegram_bot_admin import show_admin_menu
+
 WEEKDAYS_RU = {
     "Monday": "Понедельник",
     "Tuesday": "Вторник",
