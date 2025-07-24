@@ -8,7 +8,7 @@ from telegram.ext import (
     filters
 )
 from Models import User, TimeSlot, UserRole
-from Services import get_or_create_user
+from Services import get_or_create_user, get_available_times_by_date, close_session_of_day
 from db import Session
 from datetime import datetime, date, timedelta
 
@@ -91,6 +91,7 @@ async def handle_close_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text="Выберите дату для закрытия:",
         reply_markup=reply_markup
     )
+    return SELECT_DATE_TO_CLOSE
 
 async def confirm_close_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -109,32 +110,26 @@ async def confirm_close_date(update: Update, context: ContextTypes.DEFAULT_TYPE)
         text=f"Вы уверены, что хотите закрыть дату {date_str} для записи?",
         reply_markup=reply_markup
     )
+    return CONFIRM_CLOSE_DATE
 
 async def execute_close_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     date_str = context.user_data['selected_date']
-    
-    session = Session()
+
     try:
         # Получаем и деактивируем все слоты на выбранную дату
-        times = get_available_times_by_date(date_str)
-        
-        # Подтверждаем изменения
-        session.commit()
+        times = close_session_of_day(date_str)
         await query.edit_message_text(f"Дата {date_str} успешно закрыта для записи. Деактивировано {len(times)} слотов.")
     except Exception as e:
-        session.rollback()
         await query.edit_message_text(f"Ошибка при закрытии даты: {str(e)}")
-    finally:
-        session.close()
-    
+
     await show_admin_menu(update, context)
 
     
 async def handle_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
+    query = update.callback_queryща
     await query.answer()
     
     session = Session()

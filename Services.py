@@ -48,35 +48,43 @@ def get_available_dates():
     # Извлекаем даты из кортежей
     return [date[0] for date in unique_dates]
 
-def get_available_times_by_date(selected_date):
+'''закрывает целый день'''
+def close_session_of_day(selected_date):
     session = Session()
-    # Преобразуем дату в datetime для фильтрации
-    date_obj = datetime.strptime(selected_date, "%Y-%m-%d").date()
-    start_datetime = datetime.combine(date_obj, datetime.min.time())
-    end_datetime = datetime.combine(date_obj + timedelta(days=1), datetime.min.time())
-    
-    # Получаем слоты для выбранной даты
-    slots = session.query(TimeSlot).filter(
-        TimeSlot.slot_datetime >= start_datetime,
-        TimeSlot.slot_datetime < end_datetime,
-        TimeSlot.isActive == True
-    ).order_by(TimeSlot.slot_datetime).all()
-    
-    session.close()
-    
-    # Формируем список времени и деактивируем слоты
-    times = []
-    for slot in slots:
-        time_str = slot.slot_datetime.strftime("%H:%M")  # Только время
-        full_datetime_str = slot.slot_datetime.strftime("%Y-%m-%d %H:%M")  # Дата + время
-        times.append({
-            'time': time_str,
-            'full_datetime': full_datetime_str,
-            'slot_id': slot.id
-        })
-        slot.isActive = False  # Деактивируем слот
-    
-    return times
+    try:
+        # Преобразуем дату в datetime для фильтрации
+        date_obj = datetime.strptime(selected_date, "%Y-%m-%d").date()
+        start_datetime = datetime.combine(date_obj, datetime.min.time())
+        end_datetime = datetime.combine(date_obj + timedelta(days=1), datetime.min.time())
+
+        # Получаем слоты для выбранной даты
+        slots = session.query(TimeSlot).filter(
+            TimeSlot.slot_datetime >= start_datetime,
+            TimeSlot.slot_datetime < end_datetime,
+            TimeSlot.isActive == True
+        ).order_by(TimeSlot.slot_datetime).all()
+
+        # Деактивируем слоты
+        for slot in slots:
+            slot.isActive = False
+
+        session.commit()  # фиксируем изменения
+
+        # Готовим список для отображения
+        times = []
+        for slot in slots:
+            times.append({
+                'time': slot.slot_datetime.strftime("%H:%M"),
+                'full_datetime': slot.slot_datetime.strftime("%Y-%m-%d %H:%M"),
+                'slot_id': slot.id
+            })
+
+        return times
+    except Exception as e:
+        session.rollback()
+        raise e
+    finally:
+        session.close()
 
 def get_user_bookings(telegram_id):
     session = Session()
