@@ -1,5 +1,4 @@
-#Telegram_bot_user
-#здесь кнопки для панели пользователя
+# Telegram_bot_user.py
 from datetime import datetime
 
 WEEKDAYS_RU = {
@@ -28,6 +27,8 @@ from Services import get_available_dates, get_or_create_user, update_user_phone,
     get_available_times_by_date, confirm_booking_bd, get_event, get_all_events, \
     update_booking_status, clear_booking
 from db import init_db
+from Models import UserRole
+
 ADMIN_PANEL, ADMIN_VIEW_BOOKINGS, ADMIN_VIEW_USERS, ADMIN_EDIT_BOOKING = range(4, 8)
 BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
 BANYA_NAME = "Живой пар"
@@ -45,6 +46,14 @@ async def ask_for_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.callback_query.message.delete()
     except Exception as e:
         print(f"Не удалось удалить сообщение: {e}")
+
+    user_id = update.callback_query.from_user.id
+    user = get_or_create_user(user_id)
+    
+    # Проверяем, есть ли уже номер телефона
+    if user and user.phone:
+        await show_main_menu(update, context)
+        return SELECT_PROCEDURE
 
     keyboard = ReplyKeyboardMarkup(
         [[KeyboardButton("📱 Отправить номер телефона", request_contact=True)]],
@@ -67,7 +76,13 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     update_user_phone(user.id, contact.phone_number)
-    await show_main_menu(update, context)
+    
+    # Проверяем роль пользователя после сохранения номера
+    db_user = get_or_create_user(user.id)
+    if db_user.role == UserRole.ADMIN:
+        await show_admin_menu(update, context)
+    else:
+        await show_main_menu(update, context)
 
 def get_procedure_keyboard():
     keyboard = [
@@ -110,7 +125,7 @@ def get_dates_keyboard(dates, current_page):
     visible_dates = dates[start:end]
 
     for date in visible_dates:
-        callback_data = f"select_date_{date.isoformat()}"
+        callback_data = f"select_date_{date.isoformat()}"  # Используем isoformat() для даты
         date_str = date.strftime("%d.%m.%Y")
         weekday_en = date.strftime("%A")
         weekday_ru = WEEKDAYS_RU.get(weekday_en, weekday_en)
@@ -143,11 +158,12 @@ async def handle_date_selection(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
 
-    date = query.data.split("_")[1]
-    context.user_data["selected_date"] = date
+    date_str = query.data.split("_")[2]  # Изменено с [1] на [2], так как данные в формате "select_date_YYYY-MM-DD"
+    selected_date = datetime.fromisoformat(date_str).date()
+    context.user_data["selected_date"] = selected_date  # Сохраняем объект date, а не строку
 
-    # Получаем доступные слоты
-    slots = get_available_times_by_date(date)
+    # Получаем доступные слоты, передавая строку в формате YYYY-MM-DD
+    slots = get_available_times_by_date(date_str)
 
     # Сохраняем доступные слоты: id → время
     context.user_data["available_slots"] = {
@@ -163,6 +179,38 @@ async def handle_date_selection(update: Update, context: ContextTypes.DEFAULT_TY
 
     await query.edit_message_text(
         text="Выберите время для записи:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return SELECT_TIME
+
+async def handle_selected_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    date_str = query.data.replace("select_date_", "")
+    selected_date = datetime.fromisoformat(date_str).date()
+    context.user_data["selected_date"] = selected_date  # Сохраняем объект date
+
+    # Вызываем показ слотов времени, передавая строку в формате YYYY-MM-DD
+    slots = get_available_times_by_date(date_str)
+
+    if not slots:
+        await query.edit_message_text(text=f"На {selected_date.strftime('%d.%m.%Y')} нет доступных слотов.",
+                                    reply_markup=get_main_menu())
+        return SELECT_DATE
+
+    context.user_data["available_slots"] = {
+        slot.id: slot.slot_datetime.strftime("%H:%M") for slot in slots
+    }
+
+    keyboard = [
+        [InlineKeyboardButton(slot.slot_datetime.strftime("%H:%M"), callback_data=f"time_{slot.id}")]
+        for slot in slots
+    ]
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data='select_date')])
+
+    await query.edit_message_text(
+        text=f"Вы выбрали дату: {selected_date.strftime('%d.%m.%Y')}\n\nВыберите время:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return SELECT_TIME
@@ -243,16 +291,16 @@ async def confirm_delete_booking(update: Update, context: ContextTypes.DEFAULT_T
 async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    date = context.user_data['selected_date']
+    selected_date = context.user_data['selected_date']  # Это объект date
     time = context.user_data['booking_time']
     procedure_raw = context.user_data.get('procedure')
-    slot_id = context.user_data['slot_id']  # обязательно получаем slot_id
+    slot_id = context.user_data['slot_id']
 
     # Обновляем слот в базе данных
     confirm_booking_bd(procedure_raw, user_id, slot_id)
 
     event = get_event(procedure_raw)
-    date_formatted = date.strftime("%d.%m.%Y")
+    date_formatted = selected_date.strftime("%d.%m.%Y")  # Форматируем дату
 
     await query.edit_message_text(
         f"✅ Вы успешно записаны!\n\nДата: {date_formatted}\nВремя: {time}\nПроцедура: {event.title}",
@@ -261,10 +309,18 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = get_or_create_user(user_id)
+    
+    # Если у пользователя нет номера телефона, перенаправляем на его запрос
+    if not user or not user.phone:
+        return await ask_for_contact(update, context)
+    
     keyboard = [
         [InlineKeyboardButton("📅 Выбрать дату для записи", callback_data='select_date')],
         [InlineKeyboardButton("📋 Мои записи", callback_data='my_bookings')],
         [InlineKeyboardButton("👤 Профиль", callback_data='profile')],
+        [InlineKeyboardButton("Приобрести сертификат", callback_data='sertificate')],
         [InlineKeyboardButton("📞 Связаться с нами", callback_data='contact_us')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -410,7 +466,7 @@ def get_main_menu():
         [InlineKeyboardButton("📅 Выбрать дату для записи", callback_data='select_date')],
         [InlineKeyboardButton("📋 Мои записи", callback_data='my_bookings')],
         [InlineKeyboardButton("👤 Профиль", callback_data='profile')],
-        [InlineKeyboardButton("Приобрести сертификат",callback_data='sertificate')]
+        [InlineKeyboardButton("Приобрести сертификат", callback_data='sertificate')],  # Добавлена запятая
         [InlineKeyboardButton("📞 Связаться с нами", callback_data='contact_us')]
     ]
     return InlineKeyboardMarkup(keyboard)

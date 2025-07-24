@@ -12,15 +12,6 @@ from Services import get_or_create_user, get_available_times_by_date, close_sess
 from db import Session
 from datetime import datetime, date, timedelta
 
-WEEKDAYS_RU = {
-    "Monday": "Понедельник",
-    "Tuesday": "Вторник",
-    "Wednesday": "Среда",
-    "Thursday": "Четверг",
-    "Friday": "Пятница",
-    "Saturday": "Суббота",
-    "Sunday": "Воскресенье"
-}
 
 # Состояния для ConversationHandler
 ADMIN_MENU, SELECT_DATE_TO_CLOSE, CONFIRM_CLOSE_DATE, VIEW_USERS, SEND_NOTIFICATION = range(5)

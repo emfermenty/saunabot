@@ -34,7 +34,7 @@ def get_all_events():
 def get_available_dates():
     session = Session()
     now = datetime.now()
-    # Получаем только уникальные даты (без времени)
+
     unique_dates = session.query(
         func.date(TimeSlot.slot_datetime)
     ).filter(
@@ -43,10 +43,11 @@ def get_available_dates():
     ).distinct().order_by(
         func.date(TimeSlot.slot_datetime)
     ).all()
-    
+
     session.close()
-    # Извлекаем даты из кортежей
-    return [date[0] for date in unique_dates]
+
+    # Преобразуем строку 'YYYY-MM-DD' в datetime.date
+    return [datetime.strptime(date[0], "%Y-%m-%d").date() for date in unique_dates]
 
 '''закрывает целый день'''
 def close_session_of_day(selected_date):
