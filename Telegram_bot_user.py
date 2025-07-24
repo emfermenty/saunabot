@@ -3,6 +3,7 @@ import re
 from datetime import datetime
 
 from Telegram_bot_admin import show_admin_menu
+from dbcontext.db import Session
 
 WEEKDAYS_RU = {
     "Monday": "Понедельник",
@@ -22,7 +23,7 @@ from telegram.ext import (
 
 from Services import get_available_dates, get_or_create_user, update_user_phone, get_user_bookings, \
     get_available_times_by_date, confirm_booking_bd, get_event, clear_booking, load_sertificate, get_sertificate, \
-    take_only_admins, bind_sertificate_and_user
+    take_only_admins, bind_sertificate_and_user, confirm_booking_bd_with_sertificate
 from Models import UserRole
 
 ADMIN_PANEL, ADMIN_VIEW_BOOKINGS, ADMIN_VIEW_USERS, ADMIN_EDIT_BOOKING = range(4, 8)
@@ -220,6 +221,7 @@ async def handle_time_selection(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['booking_time'] = context.user_data['available_slots'][slot_id]
     procedure_raw = context.user_data.get('procedure')
     event = get_event(procedure_raw)
+    user = get_or_create_user(query.from_user.id)
     await query.edit_message_text(
         text=(
             f"🗓 Дата: {context.user_data['selected_date']}\n"
@@ -227,7 +229,7 @@ async def handle_time_selection(update: Update, context: ContextTypes.DEFAULT_TY
             f"💆 Процедура: {event.title}\n\n"
             f"Подтвердите запись:"
         ),
-        reply_markup=get_confirmation_keyboard()
+        reply_markup=get_confirmation_keyboard(user, procedure_raw)
     )
     return CONFIRM_BOOKING
 
@@ -291,18 +293,28 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     time = context.user_data['booking_time']
     procedure_raw = context.user_data.get('procedure')
     slot_id = context.user_data['slot_id']
+    by_certificate = context.user_data.get("by_certificate", False)
 
-    # Обновляем слот в базе данных
-    confirm_booking_bd(procedure_raw, user_id, slot_id)
-
+    user = get_or_create_user(user_id)
     event = get_event(procedure_raw)
-    date_formatted = selected_date.strftime("%d.%m.%Y")  # Форматируем дату
+    date_formatted = selected_date.strftime("%d.%m.%Y")
 
-    await query.edit_message_text(
-        f"✅ Вы успешно записаны!\n\nДата: {date_formatted}\nВремя: {time}\nПроцедура: {event.title}",
-        reply_markup=get_main_menu()
-    )
+    try:
+        if by_certificate:
+            confirm_booking_bd_with_sertificate(procedure_raw, user_id, slot_id, event.id)
+        else:
+            confirm_booking_bd(procedure_raw, user_id, slot_id)
+
+        await query.edit_message_text(
+            f"✅ Вы успешно записаны!\n\nДата: {date_formatted}\nВремя: {time}\nПроцедура: {event.title}" +
+            (f"\n(по сертификату, оставшееся количество записей по сертификату вы можете посмотреть в профиле)" if by_certificate else ""),
+            reply_markup=get_main_menu()
+        )
+    except Exception as e:
+        await query.edit_message_text(f"⚠️ Произошла ошибка при подтверждении записи: {e}", reply_markup=get_main_menu())
+
     return ConversationHandler.END
+
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -366,9 +378,6 @@ async def show_available_dates(update: Update, context: ContextTypes.DEFAULT_TYP
 
     keyboard = get_dates_keyboard(dates, page)
     await query.edit_message_text("Выберите дату:", reply_markup=keyboard)
-
-
-
 
 async def handle_selected_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -542,12 +551,19 @@ async def accepting_setificate(update: Update, context: ContextTypes, user_id: i
         count = sert.countofsessions_sinusoid
     await context.bot.send_message(chat_id=user_id, text=f"Вам успешно одобрен сертификат!\n\n Количество занятий по сертификату {count}")
 
-def get_confirmation_keyboard():
-    keyboard = [
+def get_confirmation_keyboard(user=None, procedure_id=None):
+    buttons = [
         [InlineKeyboardButton("✅ Подтвердить", callback_data='confirm_booking')],
         [InlineKeyboardButton("❌ Отменить", callback_data='cancel_booking')]
     ]
-    return InlineKeyboardMarkup(keyboard)
+
+    if user and procedure_id:
+        if procedure_id == 1 and user.count_of_sessions_alife_steam > 0:
+            buttons.insert(0, [InlineKeyboardButton("🎫 Записаться по сертификату", callback_data='confirm_booking_certificate')])
+        elif procedure_id == 2 and user.count_of_session_sinusoid > 0:
+            buttons.insert(0, [InlineKeyboardButton("🎫 Записаться по сертификату", callback_data='confirm_booking_certificate')])
+
+    return InlineKeyboardMarkup(buttons)
 
 def get_main_menu():
     keyboard = [
@@ -595,11 +611,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await confirm_delete_booking(update, context)
     elif query.data.startswith('delete_booking_'):
         await delete_booking(update, context)
-    #elif query.data.startswith("send_to_admin_sertificate_"):
-    #    sub_id = int(query.data.split("_")[-1])
-    #    user_id = query.from_user.id
-    #    print(f"сертисифкат {sub_id} пользователь {user_id}")
-    #    await notify_admins_about_certificate(update, context, user_id, sub_id)
     elif query.data.startswith("send_to_admin_sertificate_"):
         await send_sertificate_request_to_admin(update, context)
     elif query.data.startswith("confirm_sert_"):
@@ -609,4 +620,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_id = int(match.group(2))
         print(f"{sub_id} +  + {user_id}")
         await accepting_setificate(update, context, user_id, sub_id)
+        await query.message.delete()
+    elif query.data.startswith("deny_sert_"):
+        match = re.match(r"^deny_sert_(\d+)_(\d+)$", query.data)
+        if match:
+            sub_id = int(match.group(1))
+            user_id = int(match.group(2))
+            await context.bot.send_message(chat_id=user_id, text="Ваш запрос на сертификат был отклонён.")
+            await query.message.delete()
+    #для сертификата
+    elif query.data == 'confirm_booking_certificate':
+        context.user_data['by_certificate'] = True
+        await confirm_booking(update, context)
 

@@ -159,15 +159,45 @@ def confirm_booking_bd(procedure, user_id, slot_id):
     session.commit()
     session.close()
 
-def confirm_booking_bd_with_sertificate(procedure, user_id, slot_id, event_id):
+def confirm_booking_bd_with_sertificate(procedure: int, user_id: int, slot_id: int, event_id: int):
     session = Session()
-    slot = session.query(TimeSlot).get(slot_id)
-    slot.user_id = user_id
-    slot.event_id = int(procedure) if procedure else None
-    slot.status = SlotStatus.PENDING
-    slot.created_at = datetime.now()
-    session.commit()
-    session.close()
+    try:
+        # Получаем пользователя
+        user = session.query(User).filter_by(telegram_id=user_id).first()
+        if not user:
+            raise ValueError(f"Пользователь с telegram_id {user_id} не найден.")
+
+        # Списываем занятие по сертификату
+        if procedure == 1:  # Живой пар
+            if user.count_of_sessions_alife_steam and user.count_of_sessions_alife_steam > 0:
+                user.count_of_sessions_alife_steam -= 1
+            else:
+                raise ValueError("Нет оставшихся занятий по сертификату 'Живой пар'.")
+        elif procedure == 2:  # Синусоида
+            if user.count_of_session_sinusoid and user.count_of_session_sinusoid > 0:
+                user.count_of_session_sinusoid -= 1
+            else:
+                raise ValueError("Нет оставшихся занятий по сертификату 'Синусоида'.")
+        else:
+            raise ValueError(f"Неизвестная процедура: {procedure}")
+
+        # Обновляем слот
+        slot = session.query(TimeSlot).filter_by(id=slot_id).first()
+        if not slot:
+            raise ValueError(f"Слот с id {slot_id} не найден.")
+
+        slot.user_id = user_id
+        slot.event_id = event_id
+        slot.status = SlotStatus.PENDING
+        slot.isActive = True
+        slot.with_subscribtion = True
+        session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"Ошибка в confirm_booking_bd_with_sertificate: {e}")
+        raise
+    finally:
+        session.close()
 
 def get_event(event_id) -> Event:
     session = Session()
