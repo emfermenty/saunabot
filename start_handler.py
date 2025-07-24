@@ -8,7 +8,7 @@ from Services import get_or_create_user
 from Telegram_bot_user import *
 import asyncio
 from Models import *
-from scheduler import check_slots_and_nofity_admin, check_multiple_bookings, create_new_workday_slots, \
+from scheduler import check_multiple_bookings, create_new_workday_slots, \
     configure_scheduler, start_scheduler
 from scheduler_handler import button_callback_scheduler
 
@@ -16,6 +16,7 @@ from Telegram_bot_admin import show_admin_menu
 from Telegram_bot_admin import setup_admin_handlers
 
 BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
+#BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
 
 BANYA_NAME = "Живой пар"
 BANYA_ADDRESS = "Комсомольский проспект, 15, г. Краснокамск"

@@ -7,36 +7,39 @@ from zoneinfo import ZoneInfo
 
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
+from sqlalchemy import DateTime
 
 from Models import TimeSlot, SlotStatus, User
 from db import Session
 from scheduler_handler import send_reminder_to_user, notify_admin_if_needed, notify_admin_signed_3_times
 
 scheduler = AsyncIOScheduler()
-async def check_slots_and_nofity_admin(application):
+
+async def send_reminders_to_users(application):
     session = Session()
-    now = datetime.utcnow() + timedelta(hours=5)
-    reminder_time = now + timedelta(hours=2)
+    reminder_time = DateTime.now + timedelta(hours=2)
 
     slots = session.query(TimeSlot).filter(
-        TimeSlot.slot_datetime.between(now + timedelta(minutes=119), reminder_time),
+        TimeSlot.slot_datetime.between(DateTime.now + timedelta(minutes=119), reminder_time),
         TimeSlot.status == SlotStatus.PENDING
     ).all()
     for slot in slots:
         await send_reminder_to_user(application, slot.user.telegram_id, slot)
+    session.close()
 
-    too_late_time = now - timedelta(minutes=20)
+async def notify_admin_about_unconfirmed_slots(application):
+    session = Session()
+    too_late_time = DateTime.now - timedelta(hours=1)
+
     unconfirmed_slots = session.query(TimeSlot).filter(
         TimeSlot.slot_datetime <= too_late_time,
         TimeSlot.status == SlotStatus.PENDING,
+        TimeSlot.isActive == True
     ).all()
 
     for slot in unconfirmed_slots:
         await notify_admin_if_needed(application, slot)
-
-    session.commit()
-    session.close()
-
+    session = Session()
 async def deactivate_past_slots(application):
     session = Session()
     now = datetime.utcnow() + timedelta(hours=5)  # Asia/Yekaterinburg
@@ -104,8 +107,9 @@ def create_new_workday_slots(application):
 
 def configure_scheduler(application):
     # Используй объект scheduler, а не тип
-    scheduler.add_job(check_slots_and_nofity_admin, IntervalTrigger(minutes=1), kwargs={"application": application})
-    scheduler.add_job(deactivate_past_slots, IntervalTrigger(minutes=1), kwargs={"application": application})
+    scheduler.add_job(send_reminders_to_users, IntervalTrigger(hours=1), kwargs={"application": application})
+    scheduler.add_job(notify_admin_about_unconfirmed_slots, IntervalTrigger(hours=1), kwargs={"application": application})
+    scheduler.add_job(deactivate_past_slots, IntervalTrigger(hours=1), kwargs={"application": application})
     scheduler.add_job(check_multiple_bookings, IntervalTrigger(minutes=1), kwargs={"application": application})
     scheduler.add_job(create_new_workday_slots, CronTrigger(hour=0, minute=0, timezone="Asia/Yekaterinburg"), kwargs={"application": application})
 
