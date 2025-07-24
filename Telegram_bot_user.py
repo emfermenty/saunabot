@@ -1,3 +1,4 @@
+#Telegram_bot_user
 #здесь кнопки для панели пользователя
 from datetime import datetime
 
@@ -313,6 +314,8 @@ async def show_available_dates(update: Update, context: ContextTypes.DEFAULT_TYP
 
     keyboard = get_dates_keyboard(dates, page)
     await query.edit_message_text("Выберите дату:", reply_markup=keyboard)
+
+
 
 
 async def handle_selected_date(update: Update, context: ContextTypes.DEFAULT_TYPE):

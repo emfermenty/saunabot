@@ -12,7 +12,11 @@ from scheduler import check_slots_and_nofity_admin, check_multiple_bookings, cre
     configure_scheduler, start_scheduler
 from scheduler_handler import button_callback_scheduler
 
-BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
+from Telegram_bot_admin import show_admin_menu
+from Telegram_bot_admin import setup_admin_handlers
+
+BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
+
 BANYA_NAME = "Живой пар"
 BANYA_ADDRESS = "Комсомольский проспект, 15, г. Краснокамск"
 CONTACT_PHONE = "+7 (999) 123-45-67"
@@ -22,6 +26,14 @@ def run_bot():
     init_db()
 
     application = ApplicationBuilder().token(BOT_TOKEN).build()
+    
+    # Обработчик ошибок
+    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        print(f"Ошибка: {context.error}")
+    
+    application.add_error_handler(error_handler)
+    
+    setup_admin_handlers(application)
 
     configure_scheduler(application)  # Планировщик запускается внутри event loop
     application.post_init = on_startup
@@ -49,7 +61,7 @@ def run_bot():
         fallbacks=[
             CallbackQueryHandler(show_main_menu, pattern='^back_to_menu$')
         ],
-        per_message=False,
+        per_message=True,
         allow_reentry=True,
     )
 
@@ -71,9 +83,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     db_user = get_or_create_user(tg_id)
 
-    if db_user and db_user.phone and db_user.role == UserRole.USER:
-        await show_main_menu(update, context)
+    if db_user and db_user.phone:
+        if db_user.role == UserRole.ADMIN:
+            # Для администраторов отправляем новое сообщение с меню
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Добро пожаловать в панель администратора"
+            )
+            await show_admin_menu(update, context)
+        else:
+            await show_main_menu(update, context)
         return
+
     elif db_user.role == UserRole.ADMIN:
         print("админ на месте")
 
