@@ -22,7 +22,8 @@ class User(Base):
     phone = Column(String, nullable=True, unique=True)
     role = Column(Enum(UserRole, name='user_role'), default=UserRole.USER)
     time_slots = relationship("TimeSlot", back_populates="user")
-    count_of_sessions = Column(Integer, nullable=True)
+    count_of_sessions_alife_steam = Column(Integer, nullable=True)
+    count_of_session_sinusoid = Column(Integer, nullable=True)
     # Связи
 
 
@@ -48,6 +49,7 @@ class TimeSlot(Base):
     comment = Column(String, nullable=True)
     status = Column(Enum(SlotStatus, name="slot_status"), nullable=True)
     created_at = Column(DateTime, nullable=True)
+    with_subscribtion = Column(Boolean, nullable=True)
     # Связи
     event = relationship("Event", back_populates="time_slots")
     user = relationship("User", back_populates="time_slots")
@@ -57,7 +59,8 @@ class Subscription(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String, nullable=True)
-    countofsessions = Column(Integer)
+    countofsessions_alife_steam = Column(Integer, nullable=True)
+    countofsessions_sinusoid = Column(Integer, nullable=True)
 
 engine = create_engine('sqlite:///bot.db')
 Session = sessionmaker(bind=engine)

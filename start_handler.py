@@ -1,4 +1,8 @@
 # start_handler.py
+import os
+
+from telegram import InputFile
+from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, MessageHandler, filters
 
 from Telegram_bot_user import *
 from Models import *

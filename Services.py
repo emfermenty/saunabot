@@ -2,7 +2,7 @@
 #ФУНКЦИИ ДЛЯ ВЗАИМОДЕЙСТВИЯ С БАЗОЙ ДАННЫХ
 #ЗДЕСЬ ФУНКЦИИ КОТОРЫЕ делают некий select/update/delete
 from datetime import datetime, timedelta, time
-from Models import User, Event, TimeSlot, SlotStatus, UserRole
+from Models import User, Event, TimeSlot, SlotStatus, UserRole, Subscription
 from dbcontext.db import Session
 from sqlalchemy import func, extract
 
@@ -159,6 +159,16 @@ def confirm_booking_bd(procedure, user_id, slot_id):
     session.commit()
     session.close()
 
+def confirm_booking_bd_with_sertificate(procedure, user_id, slot_id, event_id):
+    session = Session()
+    slot = session.query(TimeSlot).get(slot_id)
+    slot.user_id = user_id
+    slot.event_id = int(procedure) if procedure else None
+    slot.status = SlotStatus.PENDING
+    slot.created_at = datetime.now()
+    session.commit()
+    session.close()
+
 def get_event(event_id) -> Event:
     session = Session()
     event = session.query(Event).filter_by(id=event_id).first()
@@ -230,3 +240,30 @@ def take_only_admins():
     admins = session.query(User).filter(User.role == UserRole.ADMIN).all()
     session.close()
     return admins
+
+def load_sertificate() -> Subscription:
+    session = Session()
+    sertificate = session.query(Subscription).all()
+    session.close()
+    return sertificate
+
+def get_sertificate(sertificateId):
+    session = Session()
+    sertificate = session.query(Subscription).filter(Subscription.id == sertificateId).first()
+    session.close()
+    return sertificate
+
+def bind_sertificate_and_user(userId : int, sertificate_id : int):
+    session = Session()
+    user = session.query(User).filter_by(telegram_id=userId).first()
+    sert = session.query(Subscription).filter_by(id=sertificate_id).first()
+    if user.count_of_sessions_alife_steam:
+        user.count_of_sessions_alife_steam += sert.countofsessions_alife_steam
+    else:
+        user.count_of_sessions_alife_steam = sert.countofsessions_alife_steam
+    if user.count_of_session_sinusoid:
+        user.count_of_session_sinusoid += sert.countofsessions_sinusoid
+    else:
+        user.count_of_session_sinusoid = sert.countofsessions_sinusoid
+    session.commit()
+    session.close()

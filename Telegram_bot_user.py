@@ -1,4 +1,5 @@
 # Telegram_bot_user.py
+import re
 from datetime import datetime
 
 from Telegram_bot_admin import show_admin_menu
@@ -20,7 +21,8 @@ from telegram.ext import (
 )
 
 from Services import get_available_dates, get_or_create_user, update_user_phone, get_user_bookings, \
-    get_available_times_by_date, confirm_booking_bd, get_event, clear_booking
+    get_available_times_by_date, confirm_booking_bd, get_event, clear_booking, load_sertificate, get_sertificate, \
+    take_only_admins, bind_sertificate_and_user
 from Models import UserRole
 
 ADMIN_PANEL, ADMIN_VIEW_BOOKINGS, ADMIN_VIEW_USERS, ADMIN_EDIT_BOOKING = range(4, 8)
@@ -442,11 +444,103 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.edit_message_text(
         f"👤 Ваш профиль:\n\n"
         f"Имя: {full_name}\n"
-        f"Telegram ID: {user_id}\n"
         f"Username: {username}\n"
-        f"Телефон: {user.phone if user.phone else 'не указан'}",
+        f"Телефон: {user.phone if user.phone else 'не указан'}\n"
+        f"Количество занятий по сертификату:\n"
+        f"   Синусойда: {user.count_of_session_sinusoid if user.count_of_session_sinusoid else 0}"
+        f"   Живой пар: {user.count_of_sessions_alife_steam if user.count_of_sessions_alife_steam else 0} ",
         reply_markup=get_main_menu()
     )
+'''кнопка выбора сертификата'''
+async def obtainment_sertificate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    sertificates = load_sertificate()
+
+    if not sertificates:
+        await query.edit_message_text("Сертификатов пока нет.")
+        return
+
+    keyboard = [
+        [InlineKeyboardButton(text=sub.title, callback_data=f"sert_{sub.id}")]
+        for sub in sertificates
+    ]
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data='back_to_menu')])
+    await query.edit_message_text(
+        text="Для приобритения сертификата обратитесь к администратору\n Нажмите на кнопку, после чего попросите администратора активировать сертификат после оплаты",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+'''отправка сообщения администратору'''
+async def handle_selected_sertificate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    sub_id = int(query.data.split("_")[1])
+    sert = get_sertificate(sub_id)
+    print(sub_id)
+    if sert:
+        text = f"Вы выбрали {sert.title}\nНажмите на кнопку, после чего администратору придет сообщение с подтверждением"
+    else:
+        text = "Сертификат не найден."
+
+    keyboard = [
+        [InlineKeyboardButton("✅ Подтвердить", callback_data=f'send_to_admin_sertificate_{sub_id}')],
+        [InlineKeyboardButton("❌ Отменить", callback_data='back_to_menu')]
+    ]
+    await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def send_sertificate_request_to_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    try:
+        sub_id = int(query.data.split("_")[-1])
+    except ValueError:
+        await query.edit_message_text("Ошибка при обработке данных.")
+        return
+
+    user_id = query.from_user.id
+
+    # Отправка админам
+    await notify_admins_about_certificate(update, context, user_id, sub_id)
+
+    await query.edit_message_text(
+        "✅ Ваша заявка на сертификат отправлена администратору.\nОжидайте подтверждения.",
+        reply_markup=get_main_menu()
+    )
+
+'''сообщение администратору с сертификатом'''
+async def notify_admins_about_certificate(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, sub_id: int):
+    sert = get_sertificate(sub_id)
+    user = get_or_create_user(user_id)
+    admins = take_only_admins()
+
+    text = f"Пользователь {user.telegram_id}\n С номером: {user.phone}\n запрашивает сертификат: {sert.title}\nПодтвердите выдачу."
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Подтвердить", callback_data=f'confirm_sert_{sub_id}_{user_id}')],
+        [InlineKeyboardButton("❌ Отклонить", callback_data=f'deny_sert_{sub_id}_{user_id}')]
+    ])
+
+    for admin in admins:
+        try:
+            await context.bot.send_message(
+                chat_id=admin.telegram_id,
+                text=f"[Пользователь](tg://user?id={user.telegram_id})\n с номером {user.phone}\n запрашивает сертификат: {sert.title}\nПодтвердите выдачу.",
+                reply_markup=keyboard,
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            print(f"Ошибка отправки админу {admin.telegram_id}: {e}")
+
+async def accepting_setificate(update: Update, context: ContextTypes, user_id: int, sub_id: int):
+    bind_sertificate_and_user(user_id, sub_id)
+    sert = get_sertificate(sub_id)
+    if sert.countofsessions_alife_steam:
+        count = sert.countofsessions_alife_steam
+    else:
+        count = sert.countofsessions_sinusoid
+    await context.bot.send_message(chat_id=user_id, text=f"Вам успешно одобрен сертификат!\n\n Количество занятий по сертификату {count}")
 
 def get_confirmation_keyboard():
     keyboard = [
@@ -460,7 +554,7 @@ def get_main_menu():
         [InlineKeyboardButton("📅 Выбрать дату для записи", callback_data='select_date')],
         [InlineKeyboardButton("📋 Мои записи", callback_data='my_bookings')],
         [InlineKeyboardButton("👤 Профиль", callback_data='profile')],
-        [InlineKeyboardButton("Приобрести сертификат", callback_data='sertificate')],  # Добавлена запятая
+        [InlineKeyboardButton("Приобрести сертификат", callback_data='sertificate')],
         [InlineKeyboardButton("📞 Связаться с нами", callback_data='contact_us')]
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -481,6 +575,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await contact_us(update, context)
     elif query.data == 'back_to_menu':
         await show_main_menu(update, context)
+    elif query.data == "sertificate":
+        await obtainment_sertificate(update, context)
     elif query.data.startswith('procedure_'):
         await handle_procedure_selection(update, context)
     elif query.data.startswith('select_date_'):
@@ -491,9 +587,26 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await confirm_booking(update, context)
     elif query.data == 'cancel_booking':
         await show_main_menu(update, context)
+    elif query.data.startswith('sert_'):
+        await handle_selected_sertificate(update, context)
     elif query.data.startswith('change_date_page_'):
         await handle_date_pagination(update, context)
     elif query.data.startswith('confirm_delete_'):
         await confirm_delete_booking(update, context)
     elif query.data.startswith('delete_booking_'):
         await delete_booking(update, context)
+    #elif query.data.startswith("send_to_admin_sertificate_"):
+    #    sub_id = int(query.data.split("_")[-1])
+    #    user_id = query.from_user.id
+    #    print(f"сертисифкат {sub_id} пользователь {user_id}")
+    #    await notify_admins_about_certificate(update, context, user_id, sub_id)
+    elif query.data.startswith("send_to_admin_sertificate_"):
+        await send_sertificate_request_to_admin(update, context)
+    elif query.data.startswith("confirm_sert_"):
+        match = re.match(r"^confirm_sert_(\d+)_(\d+)$", query.data)
+        if match:
+            sub_id = int(match.group(1))
+            user_id = int(match.group(2))
+        print(f"{sub_id} +  + {user_id}")
+        await accepting_setificate(update, context, user_id, sub_id)
+
