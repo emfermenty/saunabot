@@ -15,8 +15,8 @@ from scheduler_handler import button_callback_scheduler
 from Telegram_bot_admin import show_admin_menu
 from Telegram_bot_admin import setup_admin_handlers
 
-BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
-
+#BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
+BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
 BANYA_NAME = "Живой пар"
 BANYA_ADDRESS = "Комсомольский проспект, 15, г. Краснокамск"
 CONTACT_PHONE = "+7 (999) 123-45-67"
