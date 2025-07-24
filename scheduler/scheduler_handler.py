@@ -7,6 +7,7 @@ from Telegram_bot_user import get_main_menu
 
 
 async def send_reminder_to_user(application: Application, telegram_id: int, slot: TimeSlot):
+    print(slot.id)
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Подтвердить", callback_data=f"confirmfinal_{slot.id}")],
         [InlineKeyboardButton("❌ Отменить", callback_data=f"cancelfinal_{slot.id}")]
@@ -51,6 +52,7 @@ async def button_callback_scheduler(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
     data = query.data
+    print("callback received:", data)
     if data.startswith("confirmfinal_"):
         slot_id = int(data.split("_")[1])
         confirm_timeslot(slot_id)

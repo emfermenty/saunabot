@@ -58,14 +58,14 @@ def run_bot():
         allow_reentry=True,
     )
 
+    application.add_handler(CallbackQueryHandler(button_callback_scheduler, pattern=r'^(confirmfinal_|cancelfinal_).+'))
+    application.add_handler(CallbackQueryHandler(confirm_delete_booking, pattern="^confirm_delete_"))
+    application.add_handler(CallbackQueryHandler(delete_booking, pattern="^delete_booking_"))
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(ask_for_contact, pattern='^share_phone$'))
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(booking_conv_handler)
-    application.add_handler(CallbackQueryHandler(button_callback_scheduler, pattern=r'^(confirmfinal_|cancelfinal_).+'))
-    application.add_handler(CallbackQueryHandler(confirm_delete_booking, pattern="^confirm_delete_"))
-    application.add_handler(CallbackQueryHandler(delete_booking, pattern="^delete_booking_"))
     
     # Добавляем обработчик для любых сообщений в самом конце
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_any_message))

@@ -14,14 +14,14 @@ from db import Session
 from scheduler.scheduler_handler import send_reminder_to_user, notify_admin_if_needed, notify_admin_signed_3_times
 
 scheduler = AsyncIOScheduler()
-
+'''напомимание пользователю'''
 async def send_reminders_to_users(application):
     print("[scheduler] send_reminders_to_users START")
 
     tz = ZoneInfo("Asia/Yekaterinburg")
     now = datetime.now(tz)
     reminder_start = now + timedelta(hours=2) - timedelta(minutes=1)
-    reminder_end = now + timedelta(hours=2) + timedelta(minutes=1)
+    reminder_end = now + timedelta(hours=2) + timedelta(minutes=2)
 
     print(f"[scheduler] now: {now}, checking window: {reminder_start} - {reminder_end}")
 
@@ -39,7 +39,7 @@ async def send_reminders_to_users(application):
         await send_reminder_to_user(application, slot.user.telegram_id, slot)
 
     session.close()
-
+'''уведомление админу'''
 async def notify_admin_about_unconfirmed_slots(application):
     session = Session()
     now = datetime.now()
@@ -54,6 +54,7 @@ async def notify_admin_about_unconfirmed_slots(application):
     ).all()
 
     for slot in unconfirmed_slots:
+        print("notify_admin_about_unconfirmed_slots")
         await notify_admin_if_needed(application, slot)
     session.close()
 async def deactivate_past_slots(application):
@@ -125,7 +126,7 @@ def create_new_workday_slots(application):
 def configure_scheduler(application):
     scheduler.add_job(
         send_reminders_to_users,
-        CronTrigger(minute=6, timezone="Asia/Yekaterinburg"),
+        CronTrigger(minute=0, timezone="Asia/Yekaterinburg"),
         kwargs={"application": application})
     scheduler.add_job(
         notify_admin_about_unconfirmed_slots,
