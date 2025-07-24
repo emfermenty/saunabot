@@ -2,7 +2,7 @@
 #ФУНКЦИИ ДЛЯ ВЗАИМОДЕЙСТВИЯ С БАЗОЙ ДАННЫХ
 #ЗДЕСЬ ФУНКЦИИ КОТОРЫЕ делают некий select/update/delete
 from datetime import datetime, timedelta, time
-from Models import User, Event, TimeSlot, SlotStatus
+from Models import User, Event, TimeSlot, SlotStatus, UserRole
 from db import Session
 from sqlalchemy import func, extract
 
@@ -94,7 +94,7 @@ def get_available_times_by_date(date_str: str):
     session = Session()
     date = datetime.strptime(date_str, "%Y-%m-%d").date()
 
-    min_datetime = datetime.now() + timedelta(hours=3)
+    min_datetime = datetime.now() + timedelta(hours=1)
 
     slots = session.query(TimeSlot).filter(
         extract('year', TimeSlot.slot_datetime) == date.year,
@@ -146,6 +146,7 @@ def confirm_booking_bd(procedure, user_id, slot_id):
     slot.user_id = user_id
     slot.event_id = int(procedure) if procedure else None
     slot.status = SlotStatus.PENDING
+    slot.created_at = datetime.now()
     session.commit()
     session.close()
 
@@ -195,3 +196,15 @@ def clear_booking(booking_id):
         session.commit()
 
     session.close()
+
+def take_phone_by_timeslot(slot: TimeSlot):
+    if slot.user:
+        return slot.user.phone
+    return None
+
+
+def take_only_admins():
+    session = Session()
+    admins = session.query(User).filter(User.role == UserRole.ADMIN).all()
+    session.close()
+    return admins

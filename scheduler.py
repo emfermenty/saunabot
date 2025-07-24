@@ -1,40 +1,97 @@
-#ЭТО НЕ ТРОГАТЬ (планировщик делает дима)
-from datetime import datetime, timedelta
+# scheduler.py
+from sched import scheduler
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from datetime import datetime, timedelta, time
+from zoneinfo import ZoneInfo
 
-from Models import TimeSlot, SlotStatus
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+
+from Models import TimeSlot, SlotStatus, User
 from db import Session
+from scheduler_handler import send_reminder_to_user, notify_admin_if_needed, notify_admin_signed_3_times
 
 scheduler = AsyncIOScheduler()
-
-def check_slots_and_nofity_admin():
+async def check_slots_and_nofity_admin(application):
     session = Session()
     now = datetime.utcnow() + timedelta(hours=5)
-
     reminder_time = now + timedelta(hours=2)
+
     slots = session.query(TimeSlot).filter(
         TimeSlot.slot_datetime.between(now + timedelta(minutes=119), reminder_time),
         TimeSlot.status == SlotStatus.PENDING
     ).all()
     for slot in slots:
-        send_reminder_to_user(slot.user.telegram_id, slot)  # реализуй сам
+        await send_reminder_to_user(application, slot.user.telegram_id, slot)
 
-        # Шаг 2: если прошло больше 1 часа
     too_late_time = now - timedelta(hours=1)
     unconfirmed_slots = session.query(TimeSlot).filter(
         TimeSlot.slot_datetime <= too_late_time,
         TimeSlot.status == SlotStatus.PENDING,
-        TimeSlot.notified == False
     ).all()
 
     for slot in unconfirmed_slots:
-        notify_admin_if_needed(slot.user.phone)  # реализуй сам
-        slot.notified = True
+        notify_admin_if_needed(application, slot.user.phone)
 
     session.commit()
     session.close()
 
+async def check_multiple_bookings(application):
+    session = Session()
+    now = datetime.now()
+    window_start = now - timedelta(minutes=5)
+    from sqlalchemy import func
 
-scheduler.add_job(check_slots_and_nofity_admin, "interval", minutes=1)
-scheduler.start()
+    results = session.query(
+        TimeSlot.user_id,
+        func.count(TimeSlot.id).label("count")
+    ).filter(
+        TimeSlot.created_at >= window_start,
+        TimeSlot.created_at <= now,
+        TimeSlot.status.in_([SlotStatus.PENDING, SlotStatus.CONFIRMED])
+    ).group_by(TimeSlot.user_id).having(func.count(TimeSlot.id) >= 3).all()
+    print(f"Найдено {len(results)} пользователей с 3+ слотами за 5 минут")
+    print("работает")
+    for user_id, count in results:
+        print("а вот тут")
+        user = session.query(User).filter_by(telegram_id=user_id).first()
+        if user:
+            phone = user.phone
+            print("а еще тут")
+            await notify_admin_signed_3_times(application, user.telegram_id, count, phone)
+    session.close()
+
+def create_new_workday_slots(application):
+    session = Session()
+    tz = ZoneInfo("Asia/Yekaterinburg")
+    now = datetime.now(tz).date()
+
+    next_day = now + timedelta(days=6)
+    while next_day.weekday() >= 5:
+        next_day += timedelta(days=1)
+
+    new_slots = []
+    for hour in range(9, 22):
+        slot_dt = datetime.combine(next_day, time(hour=hour)).replace(tzinfo=tz)
+        slot = TimeSlot(
+            slot_datetime=slot_dt,
+            user_id=None,
+            event_id=None,
+            isActive=True,
+            status=None
+        )
+        new_slots.append(slot)
+    print("создались")
+    session.add_all(new_slots)
+    session.commit()
+    session.close()
+
+def configure_scheduler(application):
+    # Используй объект scheduler, а не тип
+    scheduler.add_job(check_slots_and_nofity_admin, IntervalTrigger(minutes=1), kwargs={"application": application})
+    scheduler.add_job(check_multiple_bookings, IntervalTrigger(minutes=5), kwargs={"application": application})
+    scheduler.add_job(create_new_workday_slots, CronTrigger(hour=0, minute=0, timezone="Asia/Yekaterinburg"), kwargs={"application": application})
+
+def start_scheduler():
+    scheduler.start()

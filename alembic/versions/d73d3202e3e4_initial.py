@@ -1,8 +1,8 @@
-"""new models
+"""Initial
 
-Revision ID: e4b67f3bb934
+Revision ID: d73d3202e3e4
 Revises: 
-Create Date: 2025-07-23 13:48:39.531665
+Create Date: 2025-07-23 20:12:40.767893
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'e4b67f3bb934'
+revision: str = 'd73d3202e3e4'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -49,7 +49,8 @@ def upgrade() -> None:
     sa.Column('slot_datetime', sa.DateTime(), nullable=False),
     sa.Column('isActive', sa.Boolean(), nullable=True),
     sa.Column('comment', sa.String(), nullable=True),
-    sa.Column('status', sa.Enum('PENDING', 'CONFIRMED', 'CANCELED', name='slot_status'), nullable=True),
+    sa.Column('status', sa.Enum('PENDING', 'CONFIRMED', name='slot_status'), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['event_id'], ['events.id'], ),
     sa.ForeignKeyConstraint(['user_id'], ['users.telegram_id'], ),
     sa.PrimaryKeyConstraint('id'),

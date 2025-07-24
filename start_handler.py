@@ -6,12 +6,16 @@ from telegram.ext import ContextTypes
 
 from Services import get_or_create_user
 from Telegram_bot_user import *
+import asyncio
 from Models import *
+from scheduler import check_slots_and_nofity_admin, check_multiple_bookings, create_new_workday_slots, \
+    configure_scheduler, start_scheduler
 
 from Telegram_bot_admin import show_admin_menu
 from Telegram_bot_admin import setup_admin_handlers
 
 BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
+
 BANYA_NAME = "Живой пар"
 BANYA_ADDRESS = "Комсомольский проспект, 15, г. Краснокамск"
 CONTACT_PHONE = "+7 (999) 123-45-67"
@@ -19,6 +23,7 @@ WELCOME_IMAGE = "для тг.jpg"
 
 def run_bot():
     init_db()
+
     application = ApplicationBuilder().token(BOT_TOKEN).build()
     
     # Обработчик ошибок
@@ -29,6 +34,8 @@ def run_bot():
     
     setup_admin_handlers(application)
 
+    configure_scheduler(application)  # Планировщик запускается внутри event loop
+    application.post_init = on_startup
     booking_conv_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(handle_procedure_selection, pattern=r'^procedure_\d+$'),
@@ -56,13 +63,15 @@ def run_bot():
         per_message=True,
         allow_reentry=True,
     )
+
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CallbackQueryHandler(ask_for_contact, pattern='^share_phone$'))
-    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))  # отдельно ловим контакт
+    application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(booking_conv_handler)
     application.add_handler(CallbackQueryHandler(confirm_delete_booking, pattern="^confirm_delete_"))
     application.add_handler(CallbackQueryHandler(delete_booking, pattern="^delete_booking_"))
+
     application.run_polling()
 
 
@@ -83,7 +92,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await show_main_menu(update, context)
         return
-    
+
+    elif db_user.role == UserRole.ADMIN:
+        print("админ на месте")
+
     # Иначе просим отправить номер
     welcome_text = (
         f"Здравствуйте, {user.first_name}!\n\n"
@@ -106,3 +118,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(welcome_text, reply_markup=reply_markup)
     else:
         await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+
+async def on_startup(application):
+    start_scheduler()
