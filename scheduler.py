@@ -25,7 +25,7 @@ async def check_slots_and_nofity_admin(application):
     for slot in slots:
         await send_reminder_to_user(application, slot.user.telegram_id, slot)
 
-    too_late_time = now - timedelta(hours=1)
+    too_late_time = now - timedelta(minutes=20)
     unconfirmed_slots = session.query(TimeSlot).filter(
         TimeSlot.slot_datetime <= too_late_time,
         TimeSlot.status == SlotStatus.PENDING,
@@ -34,6 +34,21 @@ async def check_slots_and_nofity_admin(application):
     for slot in unconfirmed_slots:
         await notify_admin_if_needed(application, slot)
 
+    session.commit()
+    session.close()
+
+async def deactivate_past_slots(application):
+    session = Session()
+    now = datetime.utcnow() + timedelta(hours=5)  # Asia/Yekaterinburg
+    past_slots = session.query(TimeSlot).filter(
+        TimeSlot.slot_datetime < now,
+        TimeSlot.isActive == True
+    ).all()
+
+    for slot in past_slots:
+        slot.isActive = False
+        slot.status = SlotStatus.CONFIRMED
+    print(f"Деактивировано слотов: {len(past_slots)}")
     session.commit()
     session.close()
 
@@ -90,6 +105,7 @@ def create_new_workday_slots(application):
 def configure_scheduler(application):
     # Используй объект scheduler, а не тип
     scheduler.add_job(check_slots_and_nofity_admin, IntervalTrigger(minutes=1), kwargs={"application": application})
+    scheduler.add_job(deactivate_past_slots, IntervalTrigger(minutes=1), kwargs={"application": application})
     scheduler.add_job(check_multiple_bookings, IntervalTrigger(minutes=1), kwargs={"application": application})
     scheduler.add_job(create_new_workday_slots, CronTrigger(hour=0, minute=0, timezone="Asia/Yekaterinburg"), kwargs={"application": application})
 
