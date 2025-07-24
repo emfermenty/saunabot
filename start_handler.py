@@ -8,6 +8,8 @@ from Services import get_or_create_user
 from Telegram_bot_user import *
 from Models import *
 
+from Telegram_bot_admin import show_admin_menu
+from Telegram_bot_admin import setup_admin_handlers
 
 BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
 BANYA_NAME = "Живой пар"
@@ -18,6 +20,14 @@ WELCOME_IMAGE = "для тг.jpg"
 def run_bot():
     init_db()
     application = ApplicationBuilder().token(BOT_TOKEN).build()
+    
+    # Обработчик ошибок
+    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        print(f"Ошибка: {context.error}")
+    
+    application.add_error_handler(error_handler)
+    
+    setup_admin_handlers(application)
 
     booking_conv_handler = ConversationHandler(
         entry_points=[
@@ -43,7 +53,7 @@ def run_bot():
         fallbacks=[
             CallbackQueryHandler(show_main_menu, pattern='^back_to_menu$')
         ],
-        per_message=False,
+        per_message=True,
         allow_reentry=True,
     )
     application.add_handler(CommandHandler("start", start))
@@ -62,12 +72,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     db_user = get_or_create_user(tg_id)
 
-    if db_user and db_user.phone and db_user.role == UserRole.USER:
-        await show_main_menu(update, context)
+    if db_user and db_user.phone:
+        if db_user.role == UserRole.ADMIN:
+            # Для администраторов отправляем новое сообщение с меню
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Добро пожаловать в панель администратора"
+            )
+            await show_admin_menu(update, context)
+        else:
+            await show_main_menu(update, context)
         return
-    #elif db_user.role == UserRole.ADMIN:
-    #    show_admin_menu
-
+    
     # Иначе просим отправить номер
     welcome_text = (
         f"Здравствуйте, {user.first_name}!\n\n"
