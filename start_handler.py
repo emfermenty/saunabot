@@ -1,5 +1,4 @@
-# функция run_bot(): обработка команд и запуск бота
-# start() выбор запускаемой панели и требование к номеру
+# start_handler.py
 import os
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import ContextTypes
@@ -15,7 +14,6 @@ from scheduler_handler import button_callback_scheduler
 from Telegram_bot_admin import show_admin_menu
 from Telegram_bot_admin import setup_admin_handlers
 
-#BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
 BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
 BANYA_NAME = "Живой пар"
 BANYA_ADDRESS = "Комсомольский проспект, 15, г. Краснокамск"
@@ -35,8 +33,9 @@ def run_bot():
     
     setup_admin_handlers(application)
 
-    configure_scheduler(application)  # Планировщик запускается внутри event loop
+    configure_scheduler(application)
     application.post_init = on_startup
+    
     booking_conv_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(handle_procedure_selection, pattern=r'^procedure_\d+$'),
@@ -73,8 +72,22 @@ def run_bot():
     application.add_handler(CallbackQueryHandler(button_callback_scheduler))
     application.add_handler(CallbackQueryHandler(confirm_delete_booking, pattern="^confirm_delete_"))
     application.add_handler(CallbackQueryHandler(delete_booking, pattern="^delete_booking_"))
+    
+    # Добавляем обработчик для любых сообщений в самом конце
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_any_message))
 
     application.run_polling()
+
+async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Проверяем, есть ли у пользователя номер телефона
+    user = get_or_create_user(update.effective_user.id)
+    
+    if user and user.phone:
+        # Если номер есть, показываем главное меню
+        await show_main_menu(update, context)
+    else:
+        # Если номера нет, просим начать с /start
+        await update.message.reply_text("Для начала работы с ботом нажмите /start")
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -83,9 +96,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     db_user = get_or_create_user(tg_id)
 
+    # Если у пользователя есть номер телефона
     if db_user and db_user.phone:
         if db_user.role == UserRole.ADMIN:
-            # Для администраторов отправляем новое сообщение с меню
             await context.bot.send_message(
                 chat_id=update.effective_chat.id,
                 text="Добро пожаловать в панель администратора"
@@ -95,10 +108,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await show_main_menu(update, context)
         return
 
-    elif db_user.role == UserRole.ADMIN:
-        print("админ на месте")
+    # Если пользователь администратор, но без номера телефона
+    if db_user.role == UserRole.ADMIN:
+        print("Админ без номера телефона")
 
-    # Иначе просим отправить номер
+    # Для всех остальных - просим номер телефона
     welcome_text = (
         f"Здравствуйте, {user.first_name}!\n\n"
         f"Это бот для онлайн-записи в баню \"{BANYA_NAME}\" "
@@ -114,12 +128,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if os.path.exists(WELCOME_IMAGE):
         try:
             with open(WELCOME_IMAGE, 'rb') as photo:
-                await update.message.reply_photo(photo=InputFile(photo), caption=welcome_text, reply_markup=reply_markup)
+                if update.message:
+                    await update.message.reply_photo(photo=InputFile(photo), caption=welcome_text, reply_markup=reply_markup)
+                else:
+                    await update.callback_query.message.reply_photo(photo=InputFile(photo), caption=welcome_text, reply_markup=reply_markup)
         except Exception as e:
             print(f"Ошибка при отправке изображения: {e}")
-            await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+            if update.message:
+                await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+            else:
+                await update.callback_query.message.reply_text(welcome_text, reply_markup=reply_markup)
     else:
-        await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+        if update.message:
+            await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+        else:
+            await update.callback_query.message.reply_text(welcome_text, reply_markup=reply_markup)
 
 async def on_startup(application):
     start_scheduler()
