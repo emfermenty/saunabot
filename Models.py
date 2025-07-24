@@ -13,6 +13,7 @@ class UserRole(PyEnum):
 class SlotStatus(PyEnum):
     PENDING = "Ожидание"
     CONFIRMED = "Подтверждено"
+    CANCELED = "Отменено"
 
 class User(Base):
     __tablename__ = 'users'

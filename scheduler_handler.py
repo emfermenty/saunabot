@@ -1,8 +1,9 @@
-from telegram import InlineKeyboardMarkup, InlineKeyboardButton
-from telegram.ext import Application
+from telegram import InlineKeyboardMarkup, InlineKeyboardButton, Update
+from telegram.ext import Application, CallbackQueryHandler, ContextTypes
 
 from Models import TimeSlot
-from Services import take_only_admins, take_phone_by_timeslot
+from Services import take_only_admins, take_phone_by_timeslot, confirm_timeslot, canceled_timeslot
+from Telegram_bot_user import get_main_menu
 
 
 async def send_reminder_to_user(application: Application, telegram_id: int, slot: TimeSlot):
@@ -21,19 +22,40 @@ async def send_reminder_to_user(application: Application, telegram_id: int, slot
 
 def notify_admin_if_needed(application: Application, slot: TimeSlot):
     slot_time_str = slot.slot_datetime.strftime("%Y-%m-%d %H:%M")
+    user = slot.user_id
     admins = take_only_admins()
-    text = f"Человек с записью на {slot_time_str} не подтвердил присутствие\n Его номер {take_phone_by_timeslot(slot)}"
+    text = f"Человек с записью на {slot_time_str} не подтвердил присутствие\n Его номер {take_phone_by_timeslot(slot)}\n Профиль: [@{user}](tg://user?id={user})"
     for admin in admins:
         try:
             application.bot.send_message(chat_id=admin.telegram_id, text=text)
         except Exception as e:
             print(f"Не удалось отправить сообщение админу {admin.telegram_id}: {e}")
 
+
 async def notify_admin_signed_3_times(application: Application, user_telegram_id: int, count: int, user_phone: int):
     admins = take_only_admins()
-    message = f"Пользователь с ID {user_telegram_id} записался {count} раза за последние 5 минут.\n Его номер {user_phone}"
+    message = f"Пользователь [@{user_telegram_id}](tg://user?id={user_telegram_id}) записался {count} раза за последние 5 минут.\nЕго номер: {user_phone}"
+
     for admin in admins:
         try:
-            await application.bot.send_message(chat_id=admin.telegram_id, text=message)
+            await application.bot.send_message(
+                chat_id=admin.telegram_id,
+                text=message,
+                parse_mode="Markdown"
+            )
         except Exception as e:
-            print(f"Ошибка при отправке админу {admin.telegram_id}: {e}")
+            print(f"экзепшен в шэдулер хендлер) {admin.telegram_id}: {e}")
+
+
+async def button_callback_scheduler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if data.startswith("confirm_"):
+        slot_id = int(data.split("_")[1])
+        confirm_timeslot(slot_id)
+        await query.edit_message_text(text="Вы подтвердили запись!", reply_markup=get_main_menu())
+    elif data.startswith("cancel_"):
+        slot_id = int(data.split("_")[1])
+        canceled_timeslot(slot_id)
+        await query.edit_message_text(text="Вы отменили запись!", reply_markup=get_main_menu())

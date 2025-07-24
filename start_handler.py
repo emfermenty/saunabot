@@ -10,6 +10,7 @@ import asyncio
 from Models import *
 from scheduler import check_slots_and_nofity_admin, check_multiple_bookings, create_new_workday_slots, \
     configure_scheduler, start_scheduler
+from scheduler_handler import button_callback_scheduler
 
 BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
 BANYA_NAME = "Живой пар"
@@ -57,6 +58,7 @@ def run_bot():
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
     application.add_handler(CallbackQueryHandler(button_handler))
     application.add_handler(booking_conv_handler)
+    application.add_handler(CallbackQueryHandler(button_callback_scheduler))
     application.add_handler(CallbackQueryHandler(confirm_delete_booking, pattern="^confirm_delete_"))
     application.add_handler(CallbackQueryHandler(delete_booking, pattern="^delete_booking_"))
 

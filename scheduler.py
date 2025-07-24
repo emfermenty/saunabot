@@ -90,7 +90,7 @@ def create_new_workday_slots(application):
 def configure_scheduler(application):
     # Используй объект scheduler, а не тип
     scheduler.add_job(check_slots_and_nofity_admin, IntervalTrigger(minutes=1), kwargs={"application": application})
-    scheduler.add_job(check_multiple_bookings, IntervalTrigger(minutes=5), kwargs={"application": application})
+    scheduler.add_job(check_multiple_bookings, IntervalTrigger(minutes=1), kwargs={"application": application})
     scheduler.add_job(create_new_workday_slots, CronTrigger(hour=0, minute=0, timezone="Asia/Yekaterinburg"), kwargs={"application": application})
 
 def start_scheduler():

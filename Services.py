@@ -168,6 +168,19 @@ def take_phone_by_timeslot(slot: TimeSlot):
         return slot.user.phone
     return None
 
+def confirm_timeslot(slotid : int):
+    session = Session()
+    slot = session.query(TimeSlot).filter(TimeSlot.id == slotid).first()
+    slot.status = SlotStatus.CONFIRMED
+    session.commit()
+    session.close()
+
+def canceled_timeslot(slotid : int):
+    session = Session()
+    slot = session.query(TimeSlot).filter(TimeSlot.id == slotid).first()
+    slot.status = SlotStatus.CANCELED
+    session.commit()
+    session.close()
 
 def take_only_admins():
     session = Session()

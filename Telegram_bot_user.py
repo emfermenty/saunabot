@@ -327,7 +327,8 @@ async def handle_selected_date(update: Update, context: ContextTypes.DEFAULT_TYP
     slots = get_available_times_by_date(selected_date.isoformat())
 
     if not slots:
-        await query.edit_message_text(f"На {selected_date.strftime('%d.%m.%Y')} нет доступных слотов.")
+        await query.edit_message_text(text=f"На {selected_date.strftime('%d.%m.%Y')} нет доступных слотов.",
+                                      reply_markup=get_main_menu())
         return SELECT_DATE
 
     context.user_data["available_slots"] = {
