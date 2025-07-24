@@ -1,16 +1,12 @@
 # scheduler.py
 from sched import scheduler
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from datetime import datetime, timedelta, time
 from zoneinfo import ZoneInfo
-
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
-from sqlalchemy import DateTime
-
 from Models import TimeSlot, SlotStatus, User
-from db import Session
+from dbcontext.db import Session
 from scheduler.scheduler_handler import send_reminder_to_user, notify_admin_if_needed, notify_admin_signed_3_times
 
 scheduler = AsyncIOScheduler()

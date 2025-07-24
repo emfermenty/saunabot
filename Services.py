@@ -3,7 +3,7 @@
 #ЗДЕСЬ ФУНКЦИИ КОТОРЫЕ делают некий select/update/delete
 from datetime import datetime, timedelta, time
 from Models import User, Event, TimeSlot, SlotStatus, UserRole
-from db import Session
+from dbcontext.db import Session
 from sqlalchemy import func, extract
 
 def get_or_create_user(telegram_id):

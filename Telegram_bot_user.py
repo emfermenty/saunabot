@@ -13,22 +13,14 @@ WEEKDAYS_RU = {
     "Sunday": "Воскресенье"
 }
 
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InputFile, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
     ContextTypes,
-    ConversationHandler, ApplicationBuilder
+    ConversationHandler
 )
-import os
 
 from Services import get_available_dates, get_or_create_user, update_user_phone, get_user_bookings, \
-    get_available_times_by_date, confirm_booking_bd, get_event, get_all_events, \
-    update_booking_status, clear_booking
-from db import init_db
+    get_available_times_by_date, confirm_booking_bd, get_event, clear_booking
 from Models import UserRole
 
 ADMIN_PANEL, ADMIN_VIEW_BOOKINGS, ADMIN_VIEW_USERS, ADMIN_EDIT_BOOKING = range(4, 8)

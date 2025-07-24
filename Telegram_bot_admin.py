@@ -1,17 +1,15 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes, 
-    CallbackQueryHandler, 
-    CommandHandler,
+    CallbackQueryHandler,
     ConversationHandler,
     MessageHandler,
     filters
 )
-from Models import User, TimeSlot, UserRole
-from Services import get_or_create_user, get_available_times_by_date, close_session_of_day
-from db import Session
-from datetime import datetime, date, timedelta
-
+from Models import User, TimeSlot
+from Services import close_session_of_day
+from dbcontext.db import Session
+from datetime import date
 
 # Состояния для ConversationHandler
 ADMIN_MENU, SELECT_DATE_TO_CLOSE, CONFIRM_CLOSE_DATE, VIEW_USERS, SEND_NOTIFICATION = range(5)
