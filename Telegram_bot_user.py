@@ -410,6 +410,7 @@ def get_main_menu():
         [InlineKeyboardButton("📅 Выбрать дату для записи", callback_data='select_date')],
         [InlineKeyboardButton("📋 Мои записи", callback_data='my_bookings')],
         [InlineKeyboardButton("👤 Профиль", callback_data='profile')],
+        [InlineKeyboardButton("Приобрести сертификат",callback_data='sertificate')]
         [InlineKeyboardButton("📞 Связаться с нами", callback_data='contact_us')]
     ]
     return InlineKeyboardMarkup(keyboard)

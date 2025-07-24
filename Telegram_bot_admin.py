@@ -129,7 +129,7 @@ async def execute_close_date(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     
 async def handle_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_queryща
+    query = update.callback_query
     await query.answer()
     
     session = Session()

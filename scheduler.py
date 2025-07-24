@@ -32,7 +32,7 @@ async def check_slots_and_nofity_admin(application):
     ).all()
 
     for slot in unconfirmed_slots:
-        notify_admin_if_needed(application, slot.user.phone)
+        await notify_admin_if_needed(application, slot)
 
     session.commit()
     session.close()

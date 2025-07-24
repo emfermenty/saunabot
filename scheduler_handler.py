@@ -20,14 +20,14 @@ async def send_reminder_to_user(application: Application, telegram_id: int, slot
     except Exception as e:
         print(f"Ошибка при отправке напоминания пользователю {telegram_id}: {e}")
 
-def notify_admin_if_needed(application: Application, slot: TimeSlot):
+async def notify_admin_if_needed(application: Application, slot: TimeSlot):
     slot_time_str = slot.slot_datetime.strftime("%Y-%m-%d %H:%M")
     user = slot.user_id
     admins = take_only_admins()
     text = f"Человек с записью на {slot_time_str} не подтвердил присутствие\n Его номер {take_phone_by_timeslot(slot)}\n Профиль: [@{user}](tg://user?id={user})"
     for admin in admins:
         try:
-            application.bot.send_message(chat_id=admin.telegram_id, text=text)
+            await application.bot.send_message(chat_id=admin.telegram_id, text=text)
         except Exception as e:
             print(f"Не удалось отправить сообщение админу {admin.telegram_id}: {e}")
 
