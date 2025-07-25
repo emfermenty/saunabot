@@ -1,5 +1,6 @@
 # start_handler.py
 import os
+from telegram import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
 from telegram import InputFile
 from telegram.ext import ApplicationBuilder, CallbackQueryHandler, CommandHandler, MessageHandler, filters
@@ -112,16 +113,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Для всех остальных - просим номер телефона
     welcome_text = (
-        f"Здравствуйте, {user.first_name}!\n\n"
-        f"Это бот для онлайн-записи в баню \"{BANYA_NAME}\" "
-        f"по адресу: {BANYA_ADDRESS}.\n\n"
-        "Для начала записи, пожалуйста, поделитесь своим номером телефона:"
-    )
+    f"Здравствуйте, {user.first_name}!\n\n"
+    "Для начала записи, пожалуйста, поделитесь своим номером телефона:"
+)
 
     keyboard = [
-        [InlineKeyboardButton("📱 Поделиться номером", callback_data='share_phone')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    [KeyboardButton("📱 Поделиться номером", request_contact=True)]
+]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
+
 
     if os.path.exists(WELCOME_IMAGE):
         try:

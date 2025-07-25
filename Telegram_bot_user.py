@@ -1,5 +1,6 @@
 # Telegram_bot_user.py
 import re
+from telegram import ReplyKeyboardRemove
 from datetime import datetime
 
 from Telegram_bot_admin import show_admin_menu
@@ -64,6 +65,8 @@ async def ask_for_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return SELECT_PROCEDURE
 
+from telegram import ReplyKeyboardRemove
+
 async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     contact = update.message.contact
     user = update.effective_user
@@ -74,12 +77,16 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     update_user_phone(user.id, contact.phone_number)
     
+    # Удаляем клавиатуру с кнопкой "Поделиться номером"
+    await update.message.reply_text("Спасибо! Номер получен ✅", reply_markup=ReplyKeyboardRemove())
+
     # Проверяем роль пользователя после сохранения номера
     db_user = get_or_create_user(user.id)
     if db_user.role == UserRole.ADMIN:
         await show_admin_menu(update, context)
     else:
         await show_main_menu(update, context)
+        
 
 def get_procedure_keyboard():
     keyboard = [

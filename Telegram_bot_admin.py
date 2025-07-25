@@ -1,84 +1,78 @@
+#Telegram_bot_admin.py
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ContextTypes, 
+    ContextTypes,
     CallbackQueryHandler,
     ConversationHandler,
     MessageHandler,
     filters
 )
-from Models import User, TimeSlot, SlotStatus
-from Services import close_session_of_day, get_unique_slot_dates, get_slots_by_date, get_available_dates_for_new_slots, \
-    get_free_slots_by_date, save_new_slot_comment, get_all_events, get_slots_to_close_day, close_single_slot
-from dbcontext.db import Session
-from datetime import date, datetime
 
-# Состояния для ConversationHandler
+from Models import User, SlotStatus
+from Services import (
+    close_session_of_day,
+    get_unique_slot_dates,
+    get_slots_by_date,
+    get_all_events,
+    get_slots_to_close_day,
+    close_single_slot,
+    save_new_slot_comment,
+    get_available_dates_for_new_slots,
+    get_free_slots_by_date
+)
+from dbcontext.db import Session
+from datetime import datetime
+
+
+# Conversation states
 ADMIN_MENU, SELECT_DATE_TO_CLOSE, CONFIRM_CLOSE_DATE, VIEW_USERS, SEND_NOTIFICATION = range(5)
 ADD_SLOT_DATE, ADD_SLOT_TIME, ADD_SLOT_COMMENT, SELECT_EVENT = range(5, 9)
 CLOSE_BOOKING_DATE, CLOSE_BOOKING_TIME, CONFIRM_CLOSE_SLOT = range(9, 12)
+SEARCH_BY_PHONE = 20
 
+# === Панель администратора ===
 async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Проверяем, это callback query или обычное сообщение
-    if update.callback_query:
-        query = update.callback_query
+    query = update.callback_query
+    if query:
         await query.answer()
         chat_id = query.message.chat_id
         message_id = query.message.message_id
     else:
         chat_id = update.effective_chat.id
         message_id = None
-    
-    keyboard = [
-        [InlineKeyboardButton("❌ Закрыть день для записи", callback_data='close_day')],
-        [InlineKeyboardButton("❌ Закрыть определенную запись", callback_data='close_booking')],
-        [InlineKeyboardButton("👥 Посмотреть пользователей", callback_data='view_users')],
-        [InlineKeyboardButton("📢 Сделать рассылку", callback_data='send_notification')],
-        [InlineKeyboardButton("Посмотреть расписание",callback_data='view_timetable')],
-        [InlineKeyboardButton("➕ Добавить запись с комментарием", callback_data='add_slot_comment')],
-        [InlineKeyboardButton("Выдать посещение по сертификату", callback_data='give_visit_sertificate')]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    text = "Панель администратора:"
-    
-    if message_id:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=text,
-            reply_markup=reply_markup
-        )
-    else:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            reply_markup=reply_markup
-        )
 
+    keyboard = [
+    [InlineKeyboardButton("❌ Закрыть день для записи", callback_data='close_day')],
+    [InlineKeyboardButton("❌ Закрыть отдельную запись", callback_data='close_booking')],
+    [InlineKeyboardButton("🔍 Поиск по телефону", callback_data='search_by_phone')],
+    [InlineKeyboardButton("📢 Рассылка", callback_data='send_notification')],
+    [InlineKeyboardButton("📅 Расписание", callback_data='view_timetable')],
+    [InlineKeyboardButton("➕ Добавить запись с комментарием", callback_data='add_slot_comment')],
+    [InlineKeyboardButton("🎫 Выдать по сертификату", callback_data='give_visit_sertificate')]
+    ]
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    text = "👮 Панель администратора:"
+    if message_id:
+        await context.bot.edit_message_text(chat_id=chat_id, message_id=message_id, text=text, reply_markup=reply_markup)
+    else:
+        await context.bot.send_message(chat_id=chat_id, text=text, reply_markup=reply_markup)
+
+
+# === Закрытие дня ===
 async def handle_close_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
-    # Получаем список дат, которые можно закрыть (будущие даты с активными слотами)
+
     dates = get_slots_to_close_day()
-    
     if not dates:
         await query.edit_message_text("Нет доступных дат для закрытия.")
         return
-    
-    # Создаем кнопки для выбора даты
-    keyboard = []
-    for dt in dates:
-        date_str = dt.strftime("%Y-%m-%d")  # просто strftime от date
-        keyboard.append([InlineKeyboardButton(date_str, callback_data=f'select_date_{date_str}')])
-    
+
+    keyboard = [[InlineKeyboardButton(d.strftime("%Y-%m-%d"), callback_data=f'select_date_{d.strftime("%Y-%m-%d")}')] for d in dates]
     keyboard.append([InlineKeyboardButton("↩️ Назад", callback_data='back_to_admin_menu')])
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.edit_message_text(
-        text="Выберите дату для закрытия:",
-        reply_markup=reply_markup
-    )
+
+    await query.edit_message_text("Выберите дату для закрытия:", reply_markup=InlineKeyboardMarkup(keyboard))
     return SELECT_DATE_TO_CLOSE
 
 async def confirm_close_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,20 +97,18 @@ async def confirm_close_date(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def execute_close_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
-    date_str = context.user_data['selected_date']
 
+    date_str = context.user_data['selected_date']
     try:
-        # Получаем и деактивируем все слоты на выбранную дату
         times = close_session_of_day(date_str)
-        await query.edit_message_text(f"Дата {date_str} успешно закрыта для записи. Деактивировано {len(times)} слотов.")
+        await query.edit_message_text(f"✅ Дата {date_str} закрыта. Деактивировано {len(times)} слотов.")
     except Exception as e:
-        await query.edit_message_text(f"Ошибка при закрытии даты: {str(e)}")
+        await query.edit_message_text(f"❌ Ошибка при закрытии даты: {str(e)}")
 
     await show_admin_menu(update, context)
 
-    
-async def handle_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# === Просмотр пользователей ===  
+'''async def handle_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
@@ -151,9 +143,18 @@ async def handle_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         text="Список пользователей:\n\n" + "\n".join(pages[current_page]),
         reply_markup=reply_markup
-    )
+    )'''
 
-async def handle_users_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_phone_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        text="Введите номер телефона для поиска (в формате 79...):",
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Назад", callback_data='back_to_admin_menu')]])
+    )
+    return SEARCH_BY_PHONE
+
+'''async def handle_users_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
@@ -182,7 +183,34 @@ async def handle_users_pagination(update: Update, context: ContextTypes.DEFAULT_
     await query.edit_message_text(
         text="Список пользователей:\n\n" + "\n".join(pages[current_page]),
         reply_markup=reply_markup
+    )'''
+
+async def handle_phone_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    phone_input = update.message.text.strip()
+    
+    session = Session()
+    user = session.query(User).filter(User.phone == phone_input).first()
+    session.close()
+
+    if phone_input.startswith("8"):
+        phone_input = "+7" + phone_input[1:]
+
+    if user:
+        info = f"""
+🆔 <b>Telegram ID:</b> {user.telegram_id}  
+📞 <b>Телефон:</b> {user.phone}  
+🔐 <b>Роль:</b> {"Администратор" if user.role == "admin" else "Пользователь"}
+"""
+    else:
+        info = f"❌ Пользователь с номером {phone_input} не найден."
+
+    await update.message.reply_text(
+        text=info,
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Назад", callback_data='back_to_admin_menu')]])
     )
+    return ConversationHandler.END
+
 
 async def handle_send_notification(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -512,7 +540,8 @@ def setup_admin_handlers(application):
         entry_points=[
             CallbackQueryHandler(handle_close_day, pattern='^close_day$'),
             CallbackQueryHandler(start_close_booking, pattern="^close_booking$"),
-            CallbackQueryHandler(handle_view_users, pattern='^view_users$'),
+            #CallbackQueryHandler(handle_view_users, pattern='^view_users$'),
+            CallbackQueryHandler(start_phone_search, pattern='^search_by_phone$'),
             CallbackQueryHandler(handle_send_notification, pattern='^send_notification$'),
             CallbackQueryHandler(start_add_slot_comment, pattern='^add_slot_comment$'),
         ],
@@ -529,8 +558,12 @@ def setup_admin_handlers(application):
                 CallbackQueryHandler(execute_close_date, pattern=r'^confirm_close_\d{4}-\d{2}-\d{2}$'),
                 CallbackQueryHandler(handle_close_day, pattern='^close_day$')
             ],
-            VIEW_USERS: [
-                CallbackQueryHandler(handle_users_pagination, pattern='^(prev_page|next_page|page_info)$'),
+            #VIEW_USERS: [
+             #   CallbackQueryHandler(handle_users_pagination, pattern='^(prev_page|next_page|page_info)$'),
+             #   CallbackQueryHandler(show_admin_menu, pattern='^back_to_admin_menu$')
+           # ],
+            SEARCH_BY_PHONE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_phone_search),
                 CallbackQueryHandler(show_admin_menu, pattern='^back_to_admin_menu$')
             ],
             SEND_NOTIFICATION: [
