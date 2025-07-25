@@ -8,7 +8,7 @@ from telegram.ext import (
 )
 from Models import User, TimeSlot, SlotStatus
 from Services import close_session_of_day, get_unique_slot_dates, get_slots_by_date, get_available_dates_for_new_slots, \
-    get_free_slots_by_date, save_new_slot_comment, get_all_events, get_slots_to_close_day
+    get_free_slots_by_date, save_new_slot_comment, get_all_events, get_slots_to_close_day, close_single_slot
 from dbcontext.db import Session
 from datetime import date, datetime
 
@@ -500,20 +500,9 @@ async def confirm_slot_close(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def execute_close_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    slot_id = context.user_data.get("slot_to_close_id")
 
-    session = Session()
-    slot = session.query(TimeSlot).get(slot_id)
-    if slot:
-        slot.active = False
-        slot.user_id = None
-        slot.event_id = None
-        slot.status = None
-        session.commit()
-        msg = "Слот успешно закрыт и очищен."
-    else:
-        msg = "Слот не найден."
-    session.close()
+    slot_id = context.user_data.get("slot_to_close_id")
+    msg = close_single_slot(slot_id)
 
     await query.edit_message_text(msg)
     await show_admin_menu(update, context)

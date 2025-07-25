@@ -399,4 +399,32 @@ def save_new_slot_comment(slot_id: int, comment: str, event_id: int) -> bool:
         return False
     finally:
         session.close()
+'''удаление с возвратом занятия по сертификату'''
+def close_single_slot(slot_id: int) -> str:
+    session = Session()
+    try:
+        slot = session.query(TimeSlot).get(slot_id)
+        if not slot:
+            return "Слот не найден."
 
+        if slot.user_id and slot.with_subscribtion:
+            user = session.query(User).get(slot.user_id)
+            if user and slot.event_id:
+                event = session.query(Event).get(slot.event_id)
+
+                if "Синусоида" in event.title and user.count_of_session_sinusoid is not None:
+                    user.count_of_session_sinusoid += 1
+                elif "пар" in event.title and user.count_of_sessions_alife_steam is not None:
+                    user.count_of_sessions_alife_steam += 1
+
+        # Очищаем слот
+        slot.isActive = False
+        slot.user_id = None
+        slot.event_id = None
+        slot.status = None
+        slot.with_subscribtion = None
+
+        session.commit()
+        return "Слот успешно закрыт и очищен. Если был занят по сертификату — сессия возвращена."
+    finally:
+        session.close()
