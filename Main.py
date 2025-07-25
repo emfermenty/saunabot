@@ -1,4 +1,4 @@
-#ТОЧКА ВХОДА В ПРОГРАММУ
+#ТОЧКА ВХОДА В ПРОГРАММУтепе
 from datetime import datetime, timedelta, timezone
 from Services import create_hourly_timeslots
 from start_handler import run_bot
