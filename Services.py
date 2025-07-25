@@ -1,7 +1,10 @@
 # services.py
 #ФУНКЦИИ ДЛЯ ВЗАИМОДЕЙСТВИЯ С БАЗОЙ ДАННЫХ
 #ЗДЕСЬ ФУНКЦИИ КОТОРЫЕ делают некий select/update/delete
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time, date
+
+from sqlalchemy.orm import joinedload
+
 from Models import User, Event, TimeSlot, SlotStatus, UserRole, Subscription
 from dbcontext.db import Session
 from sqlalchemy import func, extract
@@ -297,3 +300,38 @@ def bind_sertificate_and_user(userId : int, sertificate_id : int):
         user.count_of_session_sinusoid = sert.countofsessions_sinusoid
     session.commit()
     session.close()
+
+def get_unique_slot_dates():
+    session = Session()
+    try:
+        today = date.today()
+        dates = (
+            session.query(func.date(TimeSlot.slot_datetime))
+            .filter(func.date(TimeSlot.slot_datetime) >= today)  # только >= текущей даты
+            .distinct()
+            .order_by(func.date(TimeSlot.slot_datetime))
+            .all()
+        )
+        return [d[0] for d in dates]
+    finally:
+        session.close()
+
+
+def get_slots_by_date(date_obj):
+    session = Session()
+    try:
+        start = datetime.combine(date_obj, datetime.min.time())
+        end = datetime.combine(date_obj, datetime.max.time())
+
+        slots = session.query(TimeSlot) \
+            .options(
+                joinedload(TimeSlot.user),
+                joinedload(TimeSlot.event)
+            ) \
+            .filter(TimeSlot.slot_datetime >= start,
+                    TimeSlot.slot_datetime <= end) \
+            .order_by(TimeSlot.slot_datetime.asc()) \
+            .all()
+        return slots
+    finally:
+        session.close()

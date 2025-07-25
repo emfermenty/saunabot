@@ -7,9 +7,9 @@ from telegram.ext import (
     filters
 )
 from Models import User, TimeSlot
-from Services import close_session_of_day
+from Services import close_session_of_day, get_unique_slot_dates, get_slots_by_date
 from dbcontext.db import Session
-from datetime import date
+from datetime import date, datetime
 
 # Состояния для ConversationHandler
 ADMIN_MENU, SELECT_DATE_TO_CLOSE, CONFIRM_CLOSE_DATE, VIEW_USERS, SEND_NOTIFICATION = range(5)
@@ -29,7 +29,8 @@ async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("❌ Закрыть день для записи", callback_data='close_day')],
         [InlineKeyboardButton("👥 Посмотреть пользователей", callback_data='view_users')],
-        [InlineKeyboardButton("📢 Сделать рассылку", callback_data='send_notification')]
+        [InlineKeyboardButton("📢 Сделать рассылку", callback_data='send_notification')],
+        [InlineKeyboardButton("Посмотреть расписание",callback_data='view_timetable')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -245,6 +246,71 @@ async def send_notification_to_users(update: Update, context: ContextTypes.DEFAU
     
     await show_admin_menu(update, context)
 
+'''Обзор расписания'''
+async def handle_view_timetable(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    dates = get_unique_slot_dates()
+    if not dates:
+        await query.edit_message_text("Нет доступных дат.")
+        return
+
+    keyboard = []
+    for date_str in dates:  # даты как строки
+        callback_data = f"timetable_date_{date_str}"
+        keyboard.append([InlineKeyboardButton(date_str, callback_data=callback_data)])
+    keyboard.append([InlineKeyboardButton("↩️ Назад", callback_data='back_to_admin_menu')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        "📅 Выберите дату для просмотра расписания:",
+        reply_markup=reply_markup
+    )
+
+
+async def show_timetable_for_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    date_str = query.data.replace("timetable_date_", "")
+    selected_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+
+    slots = get_slots_by_date(selected_date)
+
+    if not slots:
+        await query.edit_message_text(f"На {selected_date.strftime('%Y-%m-%d')} записей нет.")
+        return
+
+    lines = []
+    for slot in slots:
+        user_info = f"{slot.user.telegram_id}" if slot.user else "Нет"
+        event_title = slot.event.title if slot.event else "Нет мероприятия"
+        status = slot.status.value if slot.status else "Не указано"
+        time_str = slot.slot_datetime.strftime("%H:%M")
+        lines.append(f"🕒 {time_str} | 👤 {user_info} | 🎯 {event_title} | 🟢 {status}")
+
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = "\n".join(lines[:30]) + "\n\n⚠️ Слишком много данных. Показаны только первые 30."
+
+    keyboard = [[InlineKeyboardButton("↩️ Назад", callback_data='view_timetable')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        text=f"📋 Расписание на {selected_date.strftime('%Y-%m-%d')}:\n\n{text}",
+        reply_markup=reply_markup
+    )
+
+
+async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+    if data == "view_timetable":
+        await handle_view_timetable(update, context)
+    elif data.startswith('timetable_date_'):
+        await show_timetable_for_date(update, context)
+
+
 def setup_admin_handlers(application):
     admin_conv_handler = ConversationHandler(
         entry_points=[
@@ -282,3 +348,4 @@ def setup_admin_handlers(application):
     
     application.add_handler(admin_conv_handler)
     application.add_handler(CallbackQueryHandler(show_admin_menu, pattern='^back_to_admin_menu$'))
+    application.add_handler(CallbackQueryHandler(admin_button_handler, pattern='.*'))
