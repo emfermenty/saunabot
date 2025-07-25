@@ -101,7 +101,7 @@ def get_user_bookings(telegram_id):
     session.close()
     return bookings
 
-'''получение времени в дате + 3 часа'''
+'''получение времени в дате + 1 час'''
 def get_available_times_by_date(date_str: str):
     session = Session()
     date = datetime.strptime(date_str, "%Y-%m-%d").date()
@@ -323,15 +323,67 @@ def get_slots_by_date(date_obj):
         start = datetime.combine(date_obj, datetime.min.time())
         end = datetime.combine(date_obj, datetime.max.time())
 
-        slots = session.query(TimeSlot) \
+        slots = (
+            session.query(TimeSlot)
             .options(
                 joinedload(TimeSlot.user),
                 joinedload(TimeSlot.event)
-            ) \
-            .filter(TimeSlot.slot_datetime >= start,
-                    TimeSlot.slot_datetime <= end) \
-            .order_by(TimeSlot.slot_datetime.asc()) \
+            )
+            .filter(
+                TimeSlot.slot_datetime >= start,
+                TimeSlot.slot_datetime <= end,
+                TimeSlot.isActive == True
+            )
+            .order_by(TimeSlot.slot_datetime.asc())
             .all()
+        )
         return slots
+    finally:
+        session.close()
+
+def get_available_dates_for_new_slots():
+    session = Session()
+    try:
+        today = datetime.now().date()
+        results = session.query(func.date(TimeSlot.slot_datetime)).filter(
+            TimeSlot.slot_datetime >= today,
+            TimeSlot.isActive == True,
+            TimeSlot.user_id == None
+        ).group_by(func.date(TimeSlot.slot_datetime)).all()
+
+        return [datetime.strptime(d[0], "%Y-%m-%d").date() for d in results]
+    finally:
+        session.close()
+
+def get_free_slots_by_date(date_obj):
+    session = Session()
+    try:
+        start = datetime.combine(date_obj, datetime.min.time())
+        end = datetime.combine(date_obj, datetime.max.time())
+        slots = session.query(TimeSlot).filter(
+            TimeSlot.slot_datetime >= start,
+            TimeSlot.slot_datetime <= end,
+            TimeSlot.isActive == True,
+            TimeSlot.user_id == None
+        ).order_by(TimeSlot.slot_datetime.asc()).all()
+        return slots
+    finally:
+        session.close()
+
+def save_new_slot_comment(slot_id: int, comment: str, event_id: int) -> bool:
+    session = Session()
+    try:
+        slot = session.query(TimeSlot).filter_by(id=slot_id).first()
+        if not slot:
+            return False
+        slot.comment = comment
+        slot.event_id = event_id
+        slot.status = SlotStatus.CONFIRMED
+        session.commit()
+        return True
+    except Exception as e:
+        session.rollback()
+        print(f"[ERROR] save_new_slot_comment: {e}")
+        return False
     finally:
         session.close()
