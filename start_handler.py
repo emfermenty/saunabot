@@ -50,6 +50,7 @@ def run_bot():
             CONFIRM_BOOKING: [CallbackQueryHandler(confirm_booking, pattern='^confirm_booking$')],
 
             # ADMIN
+            SEARCH_BY_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_phone_search)],
             CLOSE_BOOKING_DATE: [CallbackQueryHandler(select_slot_to_close, pattern=r'^admin_close_booking_date_\d{4}-\d{2}-\d{2}$')],
             CLOSE_BOOKING_TIME: [CallbackQueryHandler(confirm_slot_close, pattern=r'^admin_close_booking_slot_\d+$')],
             CONFIRM_CLOSE_SLOT: [CallbackQueryHandler(execute_close_slot, pattern=r'^admin_confirm_close_slot$')],
@@ -92,6 +93,7 @@ def run_bot():
             ]
         },
         fallbacks=[
+            CallbackQueryHandler(start_phone_search, pattern=r'^admin_start_phone_search$'),
             CallbackQueryHandler(show_main_menu, pattern=r'^back_to_menu$'),
             CallbackQueryHandler(show_admin_menu, pattern=r'^admin_back_to_admin_menu$'),
             CallbackQueryHandler(cancel_add_slot, pattern=r'^admin_cancel_add_slot$'),
@@ -169,15 +171,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     contact_button = KeyboardButton("📱 Поделиться номером", request_contact=True)
-    reply_markup = ReplyKeyboardMarkup([[contact_button]], resize_keyboard=True, one_time_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup(
+        [[contact_button]], resize_keyboard=True, one_time_keyboard=True
+    )
 
     if os.path.exists(WELCOME_IMAGE):
         try:
-            with open(WELCOME_IMAGE, 'rb') as photo:
+            with open(WELCOME_IMAGE, "rb") as photo:
                 if update.message:
-                    await update.message.reply_photo(photo=InputFile(photo), caption=welcome_text, reply_markup=reply_markup)
+                    await update.message.reply_photo(
+                        photo=InputFile(photo),
+                        caption=welcome_text,
+                        reply_markup=reply_markup,
+                    )
                 else:
-                    await update.callback_query.message.reply_photo(photo=InputFile(photo), caption=welcome_text, reply_markup=reply_markup)
+                    await update.callback_query.message.reply_photo(
+                        photo=InputFile(photo),
+                        caption=welcome_text,
+                        reply_markup=reply_markup,
+                    )
         except Exception as e:
             print(f"Ошибка при отправке изображения: {e}")
             await update.effective_chat.send_message(welcome_text, reply_markup=reply_markup)

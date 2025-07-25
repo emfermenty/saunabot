@@ -428,3 +428,8 @@ def close_single_slot(slot_id: int) -> str:
         return "Слот успешно закрыт и очищен. Если был занят по сертификату — сессия возвращена."
     finally:
         session.close()
+
+def search_phone(phone_input):
+    session = Session()
+    user = session.query(User).filter(User.phone == phone_input).first()
+    session.close()
