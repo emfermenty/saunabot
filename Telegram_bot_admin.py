@@ -8,13 +8,14 @@ from telegram.ext import (
 )
 from Models import User, TimeSlot, SlotStatus
 from Services import close_session_of_day, get_unique_slot_dates, get_slots_by_date, get_available_dates_for_new_slots, \
-    get_free_slots_by_date, save_new_slot_comment, get_all_events
+    get_free_slots_by_date, save_new_slot_comment, get_all_events, get_slots_to_close_day
 from dbcontext.db import Session
 from datetime import date, datetime
 
 # Состояния для ConversationHandler
 ADMIN_MENU, SELECT_DATE_TO_CLOSE, CONFIRM_CLOSE_DATE, VIEW_USERS, SEND_NOTIFICATION = range(5)
 ADD_SLOT_DATE, ADD_SLOT_TIME, ADD_SLOT_COMMENT, SELECT_EVENT = range(5, 9)
+CLOSE_BOOKING_DATE, CLOSE_BOOKING_TIME, CONFIRM_CLOSE_SLOT = range(9, 12)
 
 async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Проверяем, это callback query или обычное сообщение
@@ -29,6 +30,7 @@ async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [
         [InlineKeyboardButton("❌ Закрыть день для записи", callback_data='close_day')],
+        [InlineKeyboardButton("❌ Закрыть определенную запись", callback_data='close_booking')],
         [InlineKeyboardButton("👥 Посмотреть пользователей", callback_data='view_users')],
         [InlineKeyboardButton("📢 Сделать рассылку", callback_data='send_notification')],
         [InlineKeyboardButton("Посмотреть расписание",callback_data='view_timetable')],
@@ -58,14 +60,7 @@ async def handle_close_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     
     # Получаем список дат, которые можно закрыть (будущие даты с активными слотами)
-    session = Session()
-    today = date.today()
-    dates = session.query(
-        TimeSlot.slot_datetime
-    ).filter(
-        TimeSlot.slot_datetime >= today,
-        TimeSlot.isActive == True
-    ).distinct().all()
+    dates = get_slots_to_close_day()
     
     if not dates:
         await query.edit_message_text("Нет доступных дат для закрытия.")
@@ -74,7 +69,7 @@ async def handle_close_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Создаем кнопки для выбора даты
     keyboard = []
     for dt in dates:
-        date_str = dt[0].strftime("%Y-%m-%d")
+        date_str = dt.strftime("%Y-%m-%d")  # просто strftime от date
         keyboard.append([InlineKeyboardButton(date_str, callback_data=f'select_date_{date_str}')])
     
     keyboard.append([InlineKeyboardButton("↩️ Назад", callback_data='back_to_admin_menu')])
@@ -439,16 +434,104 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     elif data.startswith('timetable_date_'):
         await show_timetable_for_date(update, context)
 
+'''выбор даты для закрытия записи(дата)'''
+async def start_close_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
 
+    dates = get_unique_slot_dates()
+    if not dates:
+        await query.edit_message_text("Нет доступных дат.")
+        return ConversationHandler.END
+
+    keyboard = [
+        [InlineKeyboardButton(d, callback_data=f"close_booking_date_{d}")]
+        for d in dates
+    ]
+    keyboard.append([InlineKeyboardButton("↩️ Назад", callback_data="back_to_admin_menu")])
+    await query.edit_message_text("Выберите дату:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return CLOSE_BOOKING_DATE
+'''выбор времени для закрытия записи(время)'''
+async def select_slot_to_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    date_str = query.data.replace("close_booking_date_", "")
+    context.user_data['close_booking_date'] = date_str
+
+    slots = get_slots_by_date(datetime.strptime(date_str, "%Y-%m-%d").date())
+    if not slots:
+        await query.edit_message_text("На выбранную дату нет слотов.")
+        return ConversationHandler.END
+
+    keyboard = []
+    for slot in slots:
+        time_str = slot.slot_datetime.strftime("%H:%M")
+        status = "🔒 Занят" if slot.event_id else "🟢 Свободен"
+        keyboard.append([InlineKeyboardButton(f"{time_str} ({status})", callback_data=f"close_booking_slot_{slot.id}")])
+
+    keyboard.append([InlineKeyboardButton("↩️ Назад", callback_data="back_to_admin_menu")])
+    await query.edit_message_text(f"Выберите слот на {date_str}:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return CLOSE_BOOKING_TIME
+'''подтверждение удаления'''
+async def confirm_slot_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    slot_id = int(query.data.replace("close_booking_slot_", ""))
+    context.user_data['slot_to_close_id'] = slot_id
+
+    keyboard = [
+        [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_close_slot")],
+        [InlineKeyboardButton("↩️ Назад", callback_data="back_to_admin_menu")]
+    ]
+    await query.edit_message_text("Вы уверены, что хотите закрыть эту запись?", reply_markup=InlineKeyboardMarkup(keyboard))
+    return CONFIRM_CLOSE_SLOT
+async def confirm_slot_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    slot_id = int(query.data.replace("close_booking_slot_", ""))
+    context.user_data['slot_to_close_id'] = slot_id
+
+    keyboard = [
+        [InlineKeyboardButton("✅ Подтвердить", callback_data="confirm_close_slot")],
+        [InlineKeyboardButton("↩️ Назад", callback_data="back_to_admin_menu")]
+    ]
+    await query.edit_message_text("Вы уверены, что хотите закрыть эту запись?", reply_markup=InlineKeyboardMarkup(keyboard))
+    return CONFIRM_CLOSE_SLOT
+async def execute_close_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    slot_id = context.user_data.get("slot_to_close_id")
+
+    session = Session()
+    slot = session.query(TimeSlot).get(slot_id)
+    if slot:
+        slot.active = False
+        slot.user_id = None
+        slot.event_id = None
+        slot.status = None
+        session.commit()
+        msg = "Слот успешно закрыт и очищен."
+    else:
+        msg = "Слот не найден."
+    session.close()
+
+    await query.edit_message_text(msg)
+    await show_admin_menu(update, context)
+    return ConversationHandler.END
 def setup_admin_handlers(application):
     admin_conv_handler = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(handle_close_day, pattern='^close_day$'),
+            CallbackQueryHandler(start_close_booking, pattern="^close_booking$"),
             CallbackQueryHandler(handle_view_users, pattern='^view_users$'),
             CallbackQueryHandler(handle_send_notification, pattern='^send_notification$'),
             CallbackQueryHandler(start_add_slot_comment, pattern='^add_slot_comment$'),
         ],
         states={
+            CLOSE_BOOKING_DATE: [
+                CallbackQueryHandler(select_slot_to_close, pattern=r'^close_booking_date_\d{4}-\d{2}-\d{2}$')],
+            CLOSE_BOOKING_TIME: [CallbackQueryHandler(confirm_slot_close, pattern=r'^close_booking_slot_\d+$')],
+            CONFIRM_CLOSE_SLOT: [CallbackQueryHandler(execute_close_slot, pattern="^confirm_close_slot$")],
             SELECT_DATE_TO_CLOSE: [
                 CallbackQueryHandler(confirm_close_date, pattern=r'^select_date_\d{4}-\d{2}-\d{2}$'),
                 CallbackQueryHandler(show_admin_menu, pattern='^back_to_admin_menu$')

@@ -340,7 +340,7 @@ def get_slots_by_date(date_obj):
         return slots
     finally:
         session.close()
-
+'''получение дат где есть незакрытые слоты'''
 def get_available_dates_for_new_slots():
     session = Session()
     try:
@@ -355,6 +355,18 @@ def get_available_dates_for_new_slots():
     finally:
         session.close()
 
+'''получение слотов в целом'''
+def get_slots_to_close_day():
+    session = Session()
+    try:
+        today = datetime.now().date()
+        results = session.query(func.date(TimeSlot.slot_datetime)).filter(
+            TimeSlot.slot_datetime >= today
+        ).group_by(func.date(TimeSlot.slot_datetime)).all()
+
+        return [datetime.strptime(d[0], "%Y-%m-%d").date() for d in results]
+    finally:
+        session.close()
 def get_free_slots_by_date(date_obj):
     session = Session()
     try:
@@ -387,3 +399,4 @@ def save_new_slot_comment(slot_id: int, comment: str, event_id: int) -> bool:
         return False
     finally:
         session.close()
+
