@@ -9,7 +9,7 @@ from telegram.ext import (
 from Models import User, TimeSlot, SlotStatus, UserRole
 from Services import close_session_of_day, get_unique_slot_dates, get_slots_by_date, get_available_dates_for_new_slots, \
     get_free_slots_by_date, save_new_slot_comment, get_all_events, get_slots_to_close_day, close_single_slot, \
-    get_or_create_user, search_phone, get_all_users
+    get_or_create_user, get_all_users
 from dbcontext.db import Session
 from datetime import date, datetime
 
@@ -81,39 +81,6 @@ async def handle_close_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
     return SELECT_DATE_TO_CLOSE
-
-async def start_phone_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        text="Введите номер телефона для поиска (в формате 79...):",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Назад", callback_data='admin_back_to_admin_menu')]])
-    )
-    return SEARCH_BY_PHONE
-
-async def handle_phone_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    phone_input = update.message.text.strip()
-    user = await search_phone(phone_input)
-
-    if phone_input.startswith("8"):
-        phone_input = "+7" + phone_input[1:]
-
-    if user:
-        info = f"""
-                🆔 <b>Telegram ID:</b> {user.telegram_id}  
-                📞 <b>Телефон:</b> {user.phone}  
-                🔐 <b>Роль:</b> {"Администратор" if user.role == "admin" else "Пользователь"}
-                """
-    else:
-        info = f"❌ Пользователь с номером {phone_input} не найден."
-
-    await update.message.reply_text(
-        text=info,
-        parse_mode='HTML',
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Назад", callback_data='back_to_admin_menu')]])
-    )
-    return ConversationHandler.END
-
 
 async def confirm_close_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -429,6 +396,7 @@ async def select_add_slot_time(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.edit_message_text(f"Выберите время для записи на {date_str}:", reply_markup=reply_markup)
     return ADD_SLOT_TIME
 
+
 async def select_event_for_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -490,6 +458,7 @@ async def save_slot_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Запись успешно создана.")
     await show_admin_menu(update, context)
     return ConversationHandler.END
+
 async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -516,6 +485,7 @@ async def start_close_booking(update: Update, context: ContextTypes.DEFAULT_TYPE
     keyboard.append([InlineKeyboardButton("↩️ Назад", callback_data="admin_back_to_admin_menu")])
     await query.edit_message_text("Выберите дату:", reply_markup=InlineKeyboardMarkup(keyboard))
     return CLOSE_BOOKING_DATE
+
 '''выбор времени для закрытия записи(время)'''
 async def select_slot_to_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -537,6 +507,7 @@ async def select_slot_to_close(update: Update, context: ContextTypes.DEFAULT_TYP
     keyboard.append([InlineKeyboardButton("↩️ Назад", callback_data="admin_back_to_admin_menu")])
     await query.edit_message_text(f"Выберите слот на {date_str}:", reply_markup=InlineKeyboardMarkup(keyboard))
     return CLOSE_BOOKING_TIME
+
 '''подтверждение удаления'''
 async def confirm_slot_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -606,6 +577,3 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await cancel_add_slot(update, context)
     elif data.startswith("admin_add_slot_date_"):
         await select_add_slot_time(update, context)
-    elif data.startswith("admin_search_by_phone"):
-        await start_phone_search(update, context)
-

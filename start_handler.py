@@ -11,6 +11,7 @@ from Telegram_bot_admin import *
 from Models import *
 from scheduler.scheduler import configure_scheduler, start_scheduler
 from scheduler.scheduler_handler import button_callback_scheduler
+
 BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
 #BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
 BANYA_NAME = "Живой пар"
@@ -36,6 +37,7 @@ def run_bot():
             CallbackQueryHandler(confirm_booking, pattern='^confirm_booking$'),
 
             # ADMIN (с префиксом admin_)
+            CallbackQueryHandler(handle_search_by_phone, pattern=r'^admin_search_by_phone$'),
             CallbackQueryHandler(handle_close_day, pattern=r'^admin_close_day$'),
             CallbackQueryHandler(start_close_booking, pattern=r'^admin_close_booking$'),
             CallbackQueryHandler(handle_view_users, pattern=r'^admin_view_users$'),
@@ -50,7 +52,7 @@ def run_bot():
             CONFIRM_BOOKING: [CallbackQueryHandler(confirm_booking, pattern='^confirm_booking$')],
 
             # ADMIN
-            SEARCH_BY_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_phone_search)],
+            SEARCH_BY_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_search_by_phone)],
             CLOSE_BOOKING_DATE: [CallbackQueryHandler(select_slot_to_close, pattern=r'^admin_close_booking_date_\d{4}-\d{2}-\d{2}$')],
             CLOSE_BOOKING_TIME: [CallbackQueryHandler(confirm_slot_close, pattern=r'^admin_close_booking_slot_\d+$')],
             CONFIRM_CLOSE_SLOT: [CallbackQueryHandler(execute_close_slot, pattern=r'^admin_confirm_close_slot$')],
@@ -93,7 +95,6 @@ def run_bot():
             ]
         },
         fallbacks=[
-            CallbackQueryHandler(start_phone_search, pattern=r'^admin_start_phone_search$'),
             CallbackQueryHandler(show_main_menu, pattern=r'^back_to_menu$'),
             CallbackQueryHandler(show_admin_menu, pattern=r'^admin_back_to_admin_menu$'),
             CallbackQueryHandler(cancel_add_slot, pattern=r'^admin_cancel_add_slot$'),
@@ -114,6 +115,8 @@ def run_bot():
     application.add_handler(CallbackQueryHandler(ask_for_contact, pattern=r'^share_phone$'))
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+
+
 
     configure_scheduler(application)
     application.post_init = on_startup
@@ -148,6 +151,42 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await show_main_menu(update, context)
     else:
         await update.message.reply_text("Для начала работы с ботом нажмите /start")
+
+async def handle_search_by_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("Введите номер телефона для поиска (без +7, только 10 цифр):")
+    return SEARCH_BY_PHONE
+
+async def process_search_by_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    input_text = update.message.text.strip()
+    phone_digits = ''.join(filter(str.isdigit, input_text))[-10:]
+
+    if len(phone_digits) != 10:
+        await update.message.reply_text("Пожалуйста, введите корректные 10 цифр номера.")
+        return SEARCH_BY_PHONE
+
+    users = await get_all_users()
+
+    found_user = next(
+        (user for user in users if user.phone and user.phone[-10:] == phone_digits),
+        None
+    )
+
+    if found_user:
+        text = (
+            f"✅ Пользователь найден:\n"
+            f"📱 Телефон: {found_user.phone}\n"
+            f"🆔 Telegram ID: `{found_user.telegram_id}`\n\n"
+            f"💨 Живой пар: {found_user.count_of_sessions_alife_steam or 0} занятий\n"
+            f"📈 Синусоида: {found_user.count_of_session_sinusoid or 0} занятий"
+        )
+    else:
+        text = "❌ Пользователь с таким номером не найден."
+
+    await update.message.reply_text(text, parse_mode="Markdown")
+    await show_admin_menu(update, context)
+    return ConversationHandler.END
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -195,6 +234,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.effective_chat.send_message(welcome_text, reply_markup=reply_markup)
     else:
         await update.effective_chat.send_message(welcome_text, reply_markup=reply_markup)
+
 
 
 async def on_startup(application):

@@ -9,7 +9,6 @@ from Models import User, Event, TimeSlot, SlotStatus, UserRole, Subscription
 from dbcontext.db import Session
 from sqlalchemy import func, extract, select
 
-
 async def get_or_create_user(telegram_id: int):
     async with Session() as session:
         result = await session.execute(select(User).where(User.telegram_id == telegram_id))
@@ -340,6 +339,7 @@ async def get_slots_to_close_day() -> list[date]:
             .group_by(func.date(TimeSlot.slot_datetime))
         )
         return [datetime.strptime(row[0], "%Y-%m-%d").date() for row in result.all()]
+
 async def get_free_slots_by_date(date_obj: date) -> list[TimeSlot]:
     async with Session() as session:
         start = datetime.combine(date_obj, datetime.min.time())
@@ -376,6 +376,7 @@ async def save_new_slot_comment(slot_id: int, comment: str, event_id: int) -> bo
             await session.rollback()
             print(f"[ERROR] save_new_slot_comment: {e}")
             return False
+        
 '''удаление с возвратом занятия по сертификату'''
 async def close_single_slot(slot_id: int) -> str:
     async with Session() as session:
@@ -408,14 +409,7 @@ async def close_single_slot(slot_id: int) -> str:
             return "Слот успешно закрыт и очищен. Если был занят по сертификату — сессия возвращена."
         finally:
             await session.close()
-
-async def search_phone(phone_input: str) -> User | None:
-    async with Session() as session:
-        result = await session.execute(
-            select(User).where(User.phone == phone_input)
-        )
-        return result.scalar_one_or_none()
-
+                      
 async def get_all_users():
     async with Session() as session:
         result = await session.execute(select(User).order_by(User.telegram_id))
