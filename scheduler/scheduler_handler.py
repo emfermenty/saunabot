@@ -24,7 +24,7 @@ async def send_reminder_to_user(application: Application, telegram_id: int, slot
 async def notify_admin_if_needed(application: Application, slot: TimeSlot):
     slot_time_str = slot.slot_datetime.strftime("%Y-%m-%d %H:%M")
     user = slot.user_id
-    admins = take_only_admins()
+    admins = await take_only_admins()
     text = f"Человек с записью на {slot_time_str} не подтвердил присутствие\n Его номер {take_phone_by_timeslot(slot)}\n Профиль: [@{user}](tg://user?id={user})"
     for admin in admins:
         try:
@@ -34,7 +34,7 @@ async def notify_admin_if_needed(application: Application, slot: TimeSlot):
 
 
 async def notify_admin_signed_3_times(application: Application, user_telegram_id: int, count: int, user_phone: int):
-    admins = take_only_admins()
+    admins = await take_only_admins()
     message = f"Пользователь [@{user_telegram_id}](tg://user?id={user_telegram_id}) записался {count} раза за последние 5 минут.\nЕго номер: {user_phone}"
 
     for admin in admins:
@@ -55,9 +55,9 @@ async def button_callback_scheduler(update: Update, context: ContextTypes.DEFAUL
     print("callback received:", data)
     if data.startswith("confirmfinal_"):
         slot_id = int(data.split("_")[1])
-        confirm_timeslot(slot_id)
+        await confirm_timeslot(slot_id)
         await query.edit_message_text(text="Вы подтвердили запись!", reply_markup=get_main_menu())
     elif data.startswith("cancelfinal_"):
         slot_id = int(data.split("_")[1])
-        canceled_timeslot(slot_id)
+        await canceled_timeslot(slot_id)
         await query.edit_message_text(text="Вы отменили запись!", reply_markup=get_main_menu())

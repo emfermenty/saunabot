@@ -273,9 +273,7 @@ async def send_notification_to_users(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text("Ошибка: текст рассылки не найден")
         return ConversationHandler.END
 
-    #session = Session()
     try:
-        #users = session.query(User).filter(User.telegram_id.isnot(None)).all()
         users = await get_all_users()
         success = 0
         failed = 0
@@ -296,7 +294,6 @@ async def send_notification_to_users(update: Update, context: ContextTypes.DEFAU
         )
     finally:
         pass
-        #session.close()
 
     # Очищаем временные данные
     context.user_data.pop('notification_text', None)
