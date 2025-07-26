@@ -11,8 +11,9 @@ from Telegram_bot_admin import *
 from Models import *
 from scheduler.scheduler import configure_scheduler, start_scheduler
 from scheduler.scheduler_handler import button_callback_scheduler
-BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
-#BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
+
+#BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
+BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
 BANYA_NAME = "Живой пар"
 BANYA_ADDRESS = "Комсомольский проспект, 15, г. Краснокамск"
 CONTACT_PHONE = "+7 (999) 123-45-67"
@@ -22,9 +23,9 @@ def run_bot():
     init_db()
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    #async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    #    print(f"Ошибка: {context.error}")
-    #application.add_error_handler(error_handler)
+    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        print(f"Ошибка: {context.error}")
+    application.add_error_handler(error_handler)
 
     # Объединённый ConversationHandler
     full_conv_handler = ConversationHandler(
@@ -67,7 +68,7 @@ def run_bot():
                 CallbackQueryHandler(show_admin_menu, pattern=r'^admin_back_to_admin_menu$')
             ],
             SEND_NOTIFICATION: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, process_notification_text),
+                MessageHandler(filters.TEXT | filters.PHOTO | filters.VIDEO, process_notification_text),
                 CallbackQueryHandler(send_notification_to_users, pattern='^admin_send_notification_confirm$'),
                 CallbackQueryHandler(show_admin_menu, pattern='^admin_back_to_admin_menu$')
             ],

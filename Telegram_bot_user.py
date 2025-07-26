@@ -556,18 +556,22 @@ async def notify_admins_about_certificate(update: Update, context: ContextTypes.
 async def accepting_setificate(update: Update, context: ContextTypes, user_id: int, sub_id: int):
     await bind_sertificate_and_user(user_id, sub_id)
     sert = await get_sertificate(sub_id)
-    if sert.countofsessions_alife_steam:
-        count = sert.countofsessions_alife_steam
-    else:
-        count = sert.countofsessions_sinusoid
-    await context.bot.send_message(chat_id=user_id, text=f"Вам успешно одобрен сертификат!\n\n Количество занятий по сертификату {count}")
+    count = sert.countofsessions_alife_steam or sert.countofsessions_sinusoid or 0
+    await context.bot.send_message(
+        chat_id=user_id,
+        text=f"Вам успешно одобрен сертификат!\n\nКоличество занятий по сертификату: {count}"
+    )
     key = f"sert_request_{sub_id}_{user_id}"
-    messages_to_delete = context.bot_data.get(key, [])
-    for chat_id, message_id in messages_to_delete:
+    messages_to_edit = context.bot_data.get(key, [])
+    for chat_id, message_id in messages_to_edit:
         try:
-            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+            await context.bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text="✅ Сертификат подтвержден"
+            )
         except Exception as e:
-            print(f"Не удалось удалить сообщение у {chat_id}: {e}")
+            print(f"Не удалось изменить сообщение у {chat_id}: {e}")
 
     context.bot_data.pop(key, None)
 
@@ -638,8 +642,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if match:
             sub_id = int(match.group(1))
             user_id = int(match.group(2))
-            await accepting_setificate(update, context, user_id, sub_id)
             print(f"{sub_id} +  + {user_id}")
+            await accepting_setificate(update, context, user_id, sub_id)
     elif query.data.startswith("deny_sert_"):
         match = re.match(r"^deny_sert_(\d+)_(\d+)$", query.data)
         if match:
