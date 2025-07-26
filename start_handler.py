@@ -141,16 +141,19 @@ async def universal_button_handler(update: Update, context: ContextTypes.DEFAULT
             await button_handler(update, context)
 
 async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get("notification_text") is not None:
+    if context.user_data.get('notification_text') is not None:
         return
-
+    if context.user_data.get('_conversation'):
+        return
     user = await get_or_create_user(update.effective_user.id)
+
     if user and user.phone:
-        await show_main_menu(update, context)
+        if user.role == UserRole.ADMIN:
+            await show_admin_menu(update, context)
+        else:
+            await show_main_menu(update, context)
     else:
         await update.message.reply_text("Для начала работы с ботом нажмите /start")
-
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     tg_id = user.id
