@@ -8,7 +8,7 @@ from sqlalchemy.orm import joinedload
 
 from Models import User, Event, TimeSlot, SlotStatus, UserRole, Subscription
 from dbcontext.db import Session
-from sqlalchemy import func, extract, select, case
+from sqlalchemy import func, extract, select, case, update
 
 tz = ZoneInfo("Asia/Yekaterinburg")
 from sqlalchemy import func, extract, select
@@ -407,6 +407,7 @@ async def close_single_slot(slot_id: int) -> str:
             slot.event_id = None
             slot.status = None
             slot.with_subscribtion = None
+            slot.created_at = None
 
             await session.commit()
             return "Слот успешно закрыт и очищен. Если был занят по сертификату — сессия возвращена."
@@ -459,6 +460,29 @@ async def add_new_booking_day():
         await session.commit()
         return True, new_date
 
+async def get_unclosed_days():
+    now = datetime.now(tz)
+    today_date = now.date()
+    async with Session() as session:
+        subq = (
+            select(
+                func.date(TimeSlot.slot_datetime).label("slot_date"),
+                func.count().label("total_count"),
+                func.sum(case((TimeSlot.isActive == False, 1), else_=0)).label("active_count")
+            )
+            .where(func.date(TimeSlot.slot_datetime) >= today_date)
+            .group_by(func.date(TimeSlot.slot_datetime))
+            .subquery()
+        )
+
+        result = await session.execute(
+            select(subq.c.slot_date)
+            .where(subq.c.active_count == 0)
+        )
+        closed_dates = result.scalars().all()
+
+    return closed_dates
+
 async def get_closed_days():
     now = datetime.now(tz)
     today_date = now.date()
@@ -477,8 +501,64 @@ async def get_closed_days():
         result = await session.execute(
             select(subq.c.slot_date)
             .where(subq.c.active_count == 0)
-            .order_by(subq.c.slot_date.desc())
         )
         closed_dates = result.scalars().all()
 
     return closed_dates
+
+async def open_day_for_booking_by_date(target_date: date) -> bool:
+
+    async with Session() as session:
+        # Проверим, есть ли вообще слоты на эту дату
+        result = await session.execute(
+            select(TimeSlot).where(func.date(TimeSlot.slot_datetime) == target_date)
+        )
+        slots = result.scalars().all()
+        if not slots:
+            return False
+
+        # Обновляем слоты
+        await session.execute(
+            update(TimeSlot)
+            .where(func.date(TimeSlot.slot_datetime) == target_date)
+            .values(isActive=True)
+        )
+        await session.commit()
+        return True
+async def make_admin(telegram_id: int):
+    async with Session() as session:
+        result = await session.execute(select(User).where(User.telegram_id == telegram_id))
+        user = result.scalar_one_or_none()
+        if user:
+            user.role = UserRole.ADMIN
+            await session.commit()
+
+async def update_cert_counts(telegram_id: int, sinusoid: int, alife_steam: int):
+    async with Session() as session:
+        # Получаем пользователя через сессию
+        result = await session.execute(select(User).where(User.telegram_id == telegram_id))
+        user = result.scalars().first()
+
+        if user:
+            user.count_of_session_sinusoid = sinusoid
+            user.count_of_sessions_alife_steam = alife_steam
+            await session.commit()
+async def apply_latest_subscription_to_user(telegram_id: int) -> tuple[bool, str]:
+    async with Session() as session:
+        # Получаем пользователя
+        result_user = await session.execute(select(User).where(User.telegram_id == telegram_id))
+        user = result_user.scalar_one_or_none()
+        if not user:
+            return False, "❌ Пользователь не найден."
+        # Получаем последний сертификат
+        result_sub = await session.execute(
+            select(Subscription).order_by(Subscription.id.desc()).limit(1)
+        )
+        subscription = result_sub.scalar_one_or_none()
+        if not subscription:
+            return False, "❌ Сертификаты не найдены."
+        # Прибавляем значения
+        user.count_of_sessions_alife_steam = (user.count_of_sessions_alife_steam or 0) + (subscription.countofsessions_alife_steam or 0)
+        user.count_of_session_sinusoid = (user.count_of_session_sinusoid or 0) + (subscription.countofsessions_sinusoid or 0)
+        await session.commit()
+        return True, "✅ Сертификат успешно выдан."

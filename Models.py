@@ -7,8 +7,8 @@ from enum import Enum as PyEnum
 Base = declarative_base()
 
 class UserRole(PyEnum):
-    USER = "пользователь"
-    ADMIN = "админ"
+    USER = "Пользователь"
+    ADMIN = "Админ"
 
 class SlotStatus(PyEnum):
     PENDING = "Ожидание"

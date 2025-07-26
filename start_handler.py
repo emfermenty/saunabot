@@ -108,6 +108,7 @@ def run_bot():
     application.add_handler(CallbackQueryHandler(universal_button_handler, pattern='.*'))
 
     # Остальные хендлеры
+
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_any_message))
     application.add_handler(CallbackQueryHandler(button_callback_scheduler, pattern=r'^(confirmfinal_|cancelfinal_).+'))
     application.add_handler(CallbackQueryHandler(confirm_delete_booking, pattern=r"^confirm_delete_"))
@@ -154,43 +155,6 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await show_main_menu(update, context)
     else:
         await update.message.reply_text("Для начала работы с ботом нажмите /start")
-
-async def handle_search_by_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text("Введите номер телефона для поиска (без +7, только 10 цифр):")
-    return SEARCH_BY_PHONE
-
-async def process_search_by_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    input_text = update.message.text.strip()
-    phone_digits = ''.join(filter(str.isdigit, input_text))[-10:]
-
-    if len(phone_digits) != 10:
-        await update.message.reply_text("Пожалуйста, введите корректные 10 цифр номера.")
-        return SEARCH_BY_PHONE
-
-    users = await get_all_users()
-
-    found_user = next(
-        (user for user in users if user.phone and user.phone[-10:] == phone_digits),
-        None
-    )
-
-    if found_user:
-        text = (
-            f"✅ Пользователь найден:\n"
-            f"📱 Телефон: {found_user.phone}\n"
-            f"🆔 Telegram ID: `{found_user.telegram_id}`\n\n"
-            f"💨 Живой пар: {found_user.count_of_sessions_alife_steam or 0} занятий\n"
-            f"📈 Синусоида: {found_user.count_of_session_sinusoid or 0} занятий"
-        )
-    else:
-        text = "❌ Пользователь с таким номером не найден."
-
-    await update.message.reply_text(text, parse_mode="Markdown")
-    await show_admin_menu(update, context)
-    return ConversationHandler.END
-
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user

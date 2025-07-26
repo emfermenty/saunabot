@@ -10,7 +10,8 @@ from telegram.ext import (
 from Models import User, TimeSlot, SlotStatus, UserRole
 from Services import close_session_of_day, get_unique_slot_dates, get_slots_by_date, get_available_dates_for_new_slots, \
     get_free_slots_by_date, save_new_slot_comment, get_all_events, get_slots_to_close_day, close_single_slot, \
-    get_or_create_user, get_all_users, add_new_booking_day, get_closed_days
+    get_or_create_user, get_all_users, add_new_booking_day, get_closed_days, open_day_for_booking_by_date, \
+    get_unclosed_days, make_admin, update_cert_counts, apply_latest_subscription_to_user
 from dbcontext.db import Session
 from datetime import date, datetime
 
@@ -19,11 +20,9 @@ ADMIN_MENU, SELECT_DATE_TO_CLOSE, CONFIRM_CLOSE_DATE, VIEW_USERS, SEND_NOTIFICAT
 ADD_SLOT_DATE, ADD_SLOT_TIME, ADD_SLOT_COMMENT, SELECT_EVENT = range(5, 9)
 CLOSE_BOOKING_DATE, CLOSE_BOOKING_TIME, CONFIRM_CLOSE_SLOT = range(9, 12)
 SEARCH_BY_PHONE = 20
+CLOSE_BOOKING_DATE_USER = 21
 
-async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Получаем chat_id
-    chat_id = update.effective_chat.id
-
+def get_admin_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
         [InlineKeyboardButton("❌ Закрыть день для записи", callback_data='admin_close_day')],
         [InlineKeyboardButton("❌ Закрыть определенную запись", callback_data='admin_close_booking')],
@@ -33,41 +32,93 @@ async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📅 Расписание", callback_data='admin_view_timetable')],
         [InlineKeyboardButton("➕ Добавить запись с комментарием", callback_data='admin_add_slot_comment')],
         [InlineKeyboardButton("📅 Добавить день для записи", callback_data='admin_add_day_to_booking')],
-        [InlineKeyboardButton("🎫 Выдать по сертификату", callback_data='admin_give_visit_sertificate')]
+        [InlineKeyboardButton("🎫 Просмотр пользователей", callback_data='admin_watch_users')]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    return InlineKeyboardMarkup(keyboard)
 
-    # Отправляем новое сообщение
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="📋 Панель администратора:",
-        reply_markup=reply_markup
+async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = get_admin_keyboard()
+    text = "📋 Панель администратора:"
+
+    if update.callback_query:
+        try:
+            await update.callback_query.edit_message_text(text=text, reply_markup=keyboard)
+        except Exception as e:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=keyboard)
+    else:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=text, reply_markup=keyboard)
+
+
+async def handle_search_by_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("Введите номер телефона для поиска (без +7, только 10 цифр):")
+    return SEARCH_BY_PHONE
+
+async def process_search_by_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    input_text = update.message.text.strip()
+    phone_digits = ''.join(filter(str.isdigit, input_text))[-10:]
+
+    tg_user = update.message.from_user
+    username_link = (
+        f'<a href="https://t.me/{tg_user.username}">@{tg_user.username}</a>'
+        if tg_user.username else "не указан"
     )
+    if len(phone_digits) != 10:
+        await update.message.reply_text("Пожалуйста, введите корректные 10 цифр номера.", reply_markup=get_admin_keyboard())
+        return SEARCH_BY_PHONE
+    users = await get_all_users()
+    found_user = next(
+        (user for user in users if user.phone and user.phone[-10:] == phone_digits),
+        None
+    )
+    if found_user:
+        text = (
+            f"✅ Пользователь найден:\n"
+            f"📱 Телефон: {found_user.phone}\n"
+            f"🆔 Telegram ID: {username_link}\n\n"
+            f"💨 Живой пар: {found_user.count_of_sessions_alife_steam or 0} занятий\n"
+            f"📈 Синусоида: {found_user.count_of_session_sinusoid or 0} занятий"
+        )
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("👑 Сделать админом", callback_data=f"admin_make_admin_{found_user.telegram_id}")],
+            [InlineKeyboardButton("🗑 Снять занятия", callback_data=f"admin_clear_cert_{found_user.telegram_id}")],
+            [InlineKeyboardButton("🎫 Выдать сертификат", callback_data=f"admin_give_cert_{found_user.telegram_id}")],
+            [InlineKeyboardButton("↩️ Назад", callback_data="admin_back_to_admin_menu")]
+        ])
+
+        await update.message.reply_text(text, parse_mode="HTML", reply_markup=keyboard, disable_web_page_preview=True)
+    else:
+        await update.message.reply_text("❌ Пользователь с таким номером не найден.",reply_markup=get_admin_keyboard())
+
+    return ConversationHandler.END
 
 async def handle_close_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    dates = await get_slots_to_close_day()
-    
+    dates = await get_unclosed_days()  # возвращает список строк
+
     if not dates:
         await query.edit_message_text("Нет доступных дат для закрытия.")
         return
-    
+
     # Создаем кнопки для выбора даты
     keyboard = []
     for dt in dates:
-        date_str = dt.strftime("%Y-%m-%d")  # просто strftime от date
+        date_str = dt  # это уже строка вида "YYYY-MM-DD"
         keyboard.append([InlineKeyboardButton(date_str, callback_data=f'admin_select_date_{date_str}')])
-    
+
     keyboard.append([InlineKeyboardButton("↩️ Назад", callback_data='admin_back_to_admin_menu')])
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
+
     await query.edit_message_text(
         text="Выберите дату для закрытия:",
         reply_markup=reply_markup
     )
     return SELECT_DATE_TO_CLOSE
+
 
 async def confirm_close_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -97,13 +148,10 @@ async def execute_close_date(update: Update, context: ContextTypes.DEFAULT_TYPE)
     try:
         # Получаем и деактивируем все слоты на выбранную дату
         times = await close_session_of_day(date_str)
-        await query.edit_message_text(f"Дата {date_str} успешно закрыта для записи. Деактивировано {len(times)} слотов.")
+        await query.edit_message_text(f"Дата {date_str} успешно закрыта для записи. Деактивировано {len(times)} слотов.", reply_markup=get_admin_keyboard())
     except Exception as e:
-        await query.edit_message_text(f"Ошибка при закрытии даты: {str(e)}")
+        await query.edit_message_text(f"Ошибка при закрытии даты: {str(e)}", reply_markup=get_admin_keyboard())
 
-    await show_admin_menu(update, context)
-
-    
 async def handle_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -332,7 +380,7 @@ async def show_timetable_for_date(update: Update, context: ContextTypes.DEFAULT_
     keyboard = [[InlineKeyboardButton("↩️ Назад", callback_data='admin_view_timetable')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     if not slots:
-        await query.edit_message_text(text="На {selected_date.strftime('%Y-%m-%d')} записей нет.", reply_markup=reply_markup)
+        await query.edit_message_text(text=f"На {selected_date.strftime('%Y-%m-%d')} записей нет.", reply_markup=get_admin_keyboard())
         return
 
     lines = []
@@ -445,11 +493,9 @@ async def add_day_to_booking_handler(update: Update, context: ContextTypes.DEFAU
 
     success, new_date = await add_new_booking_day()
     if success:
-        await query.edit_message_text(f"День {new_date.strftime('%Y-%m-%d')} успешно добавлен для записи.")
+        await query.edit_message_text(f"День {new_date.strftime('%Y-%m-%d')} успешно добавлен для записи.", reply_markup=get_admin_keyboard())
     else:
-        await query.edit_message_text(f"День {new_date.strftime('%Y-%m-%d')} уже добавлен ранее.")
-
-    await show_admin_menu(update, context)
+        await query.edit_message_text(f"День {new_date.strftime('%Y-%m-%d')} уже добавлен ранее.", reply_markup=get_admin_keyboard())
 
 async def select_event_for_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -460,7 +506,7 @@ async def select_event_for_slot(update: Update, context: ContextTypes.DEFAULT_TY
 
     events = await get_all_events()
     if not events:
-        await query.edit_message_text("Нет доступных мероприятий.")
+        await query.edit_message_text("Нет доступных мероприятий.", reply_markup=get_admin_keyboard())
         return ConversationHandler.END
 
     keyboard = [
@@ -476,8 +522,7 @@ async def select_event_for_slot(update: Update, context: ContextTypes.DEFAULT_TY
 async def cancel_add_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Добавление записи отменено.")
-    await show_admin_menu(update, context)
+    await query.edit_message_text("Добавление записи отменено.", reply_markup=get_admin_keyboard())
     return ConversationHandler.END
 
 async def handle_event_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -486,7 +531,7 @@ async def handle_event_selection(update: Update, context: ContextTypes.DEFAULT_T
 
     slot_id = context.user_data.get('admin_add_slot_time_id')
     if not slot_id:
-        await query.edit_message_text("Ошибка: слот не выбран.")
+        await query.edit_message_text("Ошибка: слот не выбран.", reply_markup=get_admin_keyboard())
         return ConversationHandler.END
 
     data = query.data
@@ -506,11 +551,10 @@ async def save_slot_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     print(f"[DEBUG] {slot_id}, {comment}, {event_id}")
     success = await save_new_slot_comment(slot_id, comment, event_id)
     if not success:
-        await update.message.reply_text("Ошибка: выбранный слот не найден.")
+        await update.message.reply_text("Ошибка: выбранный слот не найден.", reply_markup=get_admin_keyboard())
         return ConversationHandler.END
 
-    await update.message.reply_text("Запись успешно создана.")
-    await show_admin_menu(update, context)
+    await update.message.reply_text("Запись успешно создана.", reply_markup=get_admin_keyboard())
     return ConversationHandler.END
 
 async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -540,6 +584,23 @@ async def start_close_booking(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.edit_message_text("Выберите дату:", reply_markup=InlineKeyboardMarkup(keyboard))
     return CLOSE_BOOKING_DATE
 
+async def start_close_booking_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    dates = await get_unique_slot_dates()
+    if not dates:
+        await query.edit_message_text("Нет доступных дат.")
+        return ConversationHandler.END
+
+    keyboard = [
+        [InlineKeyboardButton(d, callback_data=f"admin_close_booking_date_{d}")]
+        for d in dates
+    ]
+    keyboard.append([InlineKeyboardButton("↩️ Назад", callback_data="admin_back_to_admin_menu")])
+    await query.edit_message_text("Выберите дату:", reply_markup=InlineKeyboardMarkup(keyboard))
+    return CLOSE_BOOKING_DATE
+
 '''выбор времени для закрытия записи(время)'''
 async def select_slot_to_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -549,7 +610,7 @@ async def select_slot_to_close(update: Update, context: ContextTypes.DEFAULT_TYP
 
     slots = await get_slots_by_date(datetime.strptime(date_str, "%Y-%m-%d").date())
     if not slots:
-        await query.edit_message_text("На выбранную дату нет слотов.")
+        await query.edit_message_text("На выбранную дату нет слотов.", reply_markup=get_admin_keyboard())
         return ConversationHandler.END
 
     keyboard = []
@@ -561,6 +622,42 @@ async def select_slot_to_close(update: Update, context: ContextTypes.DEFAULT_TYP
     keyboard.append([InlineKeyboardButton("↩️ Назад", callback_data="admin_back_to_admin_menu")])
     await query.edit_message_text(f"Выберите слот на {date_str}:", reply_markup=InlineKeyboardMarkup(keyboard))
     return CLOSE_BOOKING_TIME
+
+async def show_all_users_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    users = await get_all_users()
+
+    if not users:
+        await query.edit_message_text("❌ Пользователи не найдены.")
+        return
+
+    messages = []
+    for user in users:
+        username_link = (
+            f'<a href="tg://user?id={user.telegram_id}">профиль</a>'
+            if user.telegram_id else "не указан"
+        )
+        messages.append(
+            f"🔗 Телеграм: {username_link}\n"
+            f"📱 Телефон: {user.phone or 'не указан'}\n"
+            f"👤 Роль: {user.role.value if user.role else 'не указана'}\n"
+            f"💨 Живой пар: {user.count_of_sessions_alife_steam or 0}\n"
+            f"📈 Синусоида: {user.count_of_session_sinusoid or 0}\n"
+            f"──────────────"
+        )
+    batch_size = 5
+    for i in range(0, len(messages), batch_size):
+        chunk = "\n".join(messages[i:i + batch_size])
+        await query.message.reply_text(chunk, parse_mode="HTML")
+
+    await query.message.reply_text(
+        "⬅️ Назад в админ-панель",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("↩️ Назад", callback_data='admin_back_to_admin_menu')]
+        ])
+    )
 
 async def admin_open_day_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -574,7 +671,7 @@ async def admin_open_day_handler(update: Update, context: ContextTypes.DEFAULT_T
     closed_dates = await get_closed_days()
 
     if not closed_dates:
-        await query.edit_message_text("Нет закрытых дней для открытия.")
+        await query.edit_message_text("Нет закрытых дней для открытия.", reply_markup=get_admin_keyboard())
         return
 
     keyboard = [
@@ -589,6 +686,33 @@ async def admin_open_day_handler(update: Update, context: ContextTypes.DEFAULT_T
         text="Выберите день для открытия:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+async def admin_open_day_confirm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    date_str = query.data.replace("admin_open_day_confirm_", "")
+    try:
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except ValueError:
+        await query.edit_message_text("❌ Неверный формат даты.")
+        return
+
+    success = await open_day_for_booking_by_date(date_obj)
+
+    if success:
+        await query.edit_message_text(f"✅ День {date_str} успешно открыт для записи.", reply_markup=get_admin_keyboard())
+    else:
+        await query.edit_message_text(f"⚠️ Нет слотов на дату {date_str} или ошибка при обновлении.", reply_markup=get_admin_keyboard())
+
+async def make_user_admin(update: Update, context: ContextTypes.DEFAULT_TYPE, telegram_id: int):
+    await make_admin(telegram_id, "ADMIN")
+    await update.callback_query.edit_message_text("✅ Пользователь назначен админом.", reply_markup=get_admin_keyboard())
+async def clear_user_certificates(update: Update, context: ContextTypes.DEFAULT_TYPE, telegram_id: int):
+    await update_cert_counts(telegram_id, sinusoid=0, alife_steam=0)
+    await update.callback_query.edit_message_text("🔄 Занятия по сертификату обнулены.", reply_markup=get_admin_keyboard())
+async def give_user_certificates(update, context, telegram_id: int):
+    success, message = await apply_latest_subscription_to_user(telegram_id)
+    await update.callback_query.edit_message_text(message)
 
 '''подтверждение удаления'''
 async def confirm_slot_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -603,18 +727,7 @@ async def confirm_slot_close(update: Update, context: ContextTypes.DEFAULT_TYPE)
     ]
     await query.edit_message_text("Вы уверены, что хотите закрыть эту запись?", reply_markup=InlineKeyboardMarkup(keyboard))
     return CONFIRM_CLOSE_SLOT
-async def confirm_slot_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    slot_id = int(query.data.replace("admin_close_booking_slot_", ""))
-    context.user_data['slot_to_close_id'] = slot_id
 
-    keyboard = [
-        [InlineKeyboardButton("✅ Подтвердить", callback_data="admin_confirm_close_slot")],
-        [InlineKeyboardButton("↩️ Назад", callback_data="admin_back_to_admin_menu")]
-    ]
-    await query.edit_message_text("Вы уверены, что хотите закрыть эту запись?", reply_markup=InlineKeyboardMarkup(keyboard))
-    return CONFIRM_CLOSE_SLOT
 async def execute_close_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -622,13 +735,13 @@ async def execute_close_slot(update: Update, context: ContextTypes.DEFAULT_TYPE)
     slot_id = context.user_data.get("slot_to_close_id")
     msg = await close_single_slot(slot_id)
 
-    await query.edit_message_text(msg)
-    await show_admin_menu(update, context)
+    await query.edit_message_text(msg, reply_markup=get_admin_keyboard())
     return ConversationHandler.END
 async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     data = query.data
+
     if data == "admin_view_timetable":
         await handle_view_timetable(update, context)
     elif data.startswith("admin_timetable_date_"):
@@ -657,10 +770,23 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await handle_event_selection(update, context)
     elif data == "admin_cancel_add_slot":
         await cancel_add_slot(update, context)
-    elif data.startswith("admin_add_slot_date_"):
-        await select_add_slot_time(update, context)
     elif data.startswith("admin_add_day_to_booking"):
         await add_day_to_booking_handler(update, context)
-    elif data.startswith("admin_open_day"):
+    elif data.startswith("admin_open_day_confirm_"):
+        await admin_open_day_confirm_handler(update, context)
+    elif data == "admin_open_day":
         await admin_open_day_handler(update, context)
+    elif data == "admin_watch_users":
+        await show_all_users_handler(update, context)
+    elif data.startswith("admin_make_admin_"):
+        telegram_id = int(data.replace("admin_make_admin_", ""))
+        await make_user_admin(update, context, telegram_id)
+    elif data.startswith("admin_clear_cert_"):
+        telegram_id = int(data.replace("admin_clear_cert_", ""))
+        await clear_user_certificates(update, context, telegram_id)
+    elif data.startswith("admin_give_cert_"):
+        telegram_id = int(data.replace("admin_give_cert_", ""))
+        await give_user_certificates(update, context, telegram_id)
+    else:
+        await query.edit_message_text("❗️Неизвестная команда.")
 

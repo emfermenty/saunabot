@@ -453,17 +453,19 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_name = tg_user.first_name or ""
     last_name = tg_user.last_name or ""
     full_name = f"{first_name} {last_name}".strip()
-    username = f"@{tg_user.username}" if tg_user.username else "не указан"
-    
+    username_md = f"[ @{tg_user.username} ](https://t.me/{tg_user.username})" if tg_user.username else "не указан"
+
     await update.callback_query.edit_message_text(
         f"👤 Ваш профиль:\n\n"
         f"Имя: {full_name}\n"
-        f"Username: {username}\n"
-        f"Телефон: {user.phone if user.phone else 'не указан'}\n"
+        f"Username: {username_md}\n"
+        f"Телефон: {user.phone or 'не указан'}\n"
         f"Количество занятий по сертификату:\n"
-        f"   Синусойда: {user.count_of_session_sinusoid if user.count_of_session_sinusoid else 0}"
-        f"   Живой пар: {user.count_of_sessions_alife_steam if user.count_of_sessions_alife_steam else 0} ",
-        reply_markup=get_main_menu()
+        f"   Синусойда: {user.count_of_session_sinusoid or 0}\n"
+        f"   Живой пар: {user.count_of_sessions_alife_steam or 0}",
+        reply_markup=get_main_menu(),
+        parse_mode="MarkdownV2",
+        disable_web_page_preview=True
     )
 '''кнопка выбора сертификата'''
 async def obtainment_sertificate(update: Update, context: ContextTypes.DEFAULT_TYPE):
