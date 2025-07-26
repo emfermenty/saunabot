@@ -10,7 +10,7 @@ from telegram.ext import (
 from Models import User, TimeSlot, SlotStatus, UserRole
 from Services import close_session_of_day, get_unique_slot_dates, get_slots_by_date, get_available_dates_for_new_slots, \
     get_free_slots_by_date, save_new_slot_comment, get_all_events, get_slots_to_close_day, close_single_slot, \
-    get_or_create_user, search_phone, get_all_users
+    get_or_create_user, search_phone, get_all_users, add_new_booking_day, get_closed_days
 from dbcontext.db import Session
 from datetime import date, datetime
 
@@ -27,10 +27,12 @@ async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("❌ Закрыть день для записи", callback_data='admin_close_day')],
         [InlineKeyboardButton("❌ Закрыть определенную запись", callback_data='admin_close_booking')],
+        [InlineKeyboardButton("⭐️ Восстановить удаленный день", callback_data='admin_open_day')],
         [InlineKeyboardButton("🔍 Поиск по телефону", callback_data='admin_search_by_phone')],
         [InlineKeyboardButton("📢 Рассылка", callback_data='admin_send_notification')],
         [InlineKeyboardButton("📅 Расписание", callback_data='admin_view_timetable')],
         [InlineKeyboardButton("➕ Добавить запись с комментарием", callback_data='admin_add_slot_comment')],
+        [InlineKeyboardButton("📅 Добавить день для записи", callback_data='admin_add_day_to_booking')],
         [InlineKeyboardButton("🎫 Выдать по сертификату", callback_data='admin_give_visit_sertificate')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -465,6 +467,23 @@ async def select_add_slot_time(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     return ADD_SLOT_TIME
 
+async def add_day_to_booking_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user = await get_or_create_user(update.effective_user.id)
+    if not user or user.role != UserRole.ADMIN:
+        await query.edit_message_text("⛔ У вас нет прав для этой операции")
+        return
+
+    success, new_date = await add_new_booking_day()
+    if success:
+        await query.edit_message_text(f"День {new_date.strftime('%Y-%m-%d')} успешно добавлен для записи.")
+    else:
+        await query.edit_message_text(f"День {new_date.strftime('%Y-%m-%d')} уже добавлен ранее.")
+
+    await show_admin_menu(update, context)
+
 async def select_event_for_slot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -573,6 +592,33 @@ async def select_slot_to_close(update: Update, context: ContextTypes.DEFAULT_TYP
     keyboard.append([InlineKeyboardButton("↩️ Назад", callback_data="admin_back_to_admin_menu")])
     await query.edit_message_text(f"Выберите слот на {date_str}:", reply_markup=InlineKeyboardMarkup(keyboard))
     return CLOSE_BOOKING_TIME
+
+async def admin_open_day_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user = await get_or_create_user(update.effective_user.id)
+    if not user or user.role != UserRole.ADMIN:
+        await query.edit_message_text("⛔ У вас нет прав для этой операции")
+        return
+
+    closed_dates = await get_closed_days()
+
+    if not closed_dates:
+        await query.edit_message_text("Нет закрытых дней для открытия.")
+        return
+
+    keyboard = [
+        [InlineKeyboardButton(date, callback_data=f"admin_open_day_confirm_{date}")]
+        for date in closed_dates
+    ]
+    keyboard.append([InlineKeyboardButton("Отмена", callback_data='admin_back_to_admin_menu')])
+
+    await query.edit_message_text(
+        "Выберите день для открытия:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
 '''подтверждение удаления'''
 async def confirm_slot_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -644,4 +690,8 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await select_add_slot_time(update, context)
     elif data.startswith("admin_search_by_phone"):
         await start_phone_search(update, context)
+    elif data.startswith("admin_add_day_to_booking"):
+        await add_day_to_booking_handler(update, context)
+    elif data.startswith("admin_open_day"):
+        await admin_open_day_handler(update, context)
 

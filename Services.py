@@ -2,14 +2,15 @@
 #ФУНКЦИИ ДЛЯ ВЗАИМОДЕЙСТВИЯ С БАЗОЙ ДАННЫХ
 #ЗДЕСЬ ФУНКЦИИ КОТОРЫЕ делают некий select/update/delete
 from datetime import datetime, timedelta, time, date
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import joinedload
 
 from Models import User, Event, TimeSlot, SlotStatus, UserRole, Subscription
 from dbcontext.db import Session
-from sqlalchemy import func, extract, select
+from sqlalchemy import func, extract, select, case
 
-
+tz = ZoneInfo("Asia/Yekaterinburg")
 async def get_or_create_user(telegram_id: int):
     async with Session() as session:
         result = await session.execute(select(User).where(User.telegram_id == telegram_id))
@@ -420,3 +421,67 @@ async def get_all_users():
         result = await session.execute(select(User).order_by(User.telegram_id))
         users = result.scalars().all()
     return users
+
+async def add_new_booking_day():
+    async with Session() as session:
+        # Находим максимальную дату слотов в базе
+        last_slot = await session.execute(
+            select(TimeSlot).order_by(TimeSlot.slot_datetime.desc()).limit(1)
+        )
+        last_slot = last_slot.scalars().first()
+
+        if last_slot:
+            new_date = last_slot.slot_datetime.date() + timedelta(days=1)
+        else:
+            new_date = datetime.now().date()
+
+        new_slots = []
+        for hour in range(9, 22):  # 9..21 включительно
+            slot_dt = datetime.combine(new_date, time(hour=hour))
+            existing_slot = await session.execute(
+                select(TimeSlot).where(TimeSlot.slot_datetime == slot_dt)
+            )
+            if existing_slot.scalars().first():
+                continue  # если слот уже есть — пропускаем
+
+            new_slots.append(TimeSlot(
+                slot_datetime=slot_dt,
+                user_id=None,
+                event_id=None,
+                isActive=True,
+                status=None,
+                comment=None,
+                created_at=None,
+                with_subscribtion=False
+            ))
+
+        if not new_slots:
+            return None, new_date
+
+        session.add_all(new_slots)
+        await session.commit()
+        return True, new_date
+
+async def get_closed_days():
+    now = datetime.now(tz)
+    today_date = now.date()
+    async with Session() as session:
+        subq = (
+            select(
+                func.date(TimeSlot.slot_datetime).label("slot_date"),
+                func.count().label("total_count"),
+                func.sum(case((TimeSlot.isActive == True, 1), else_=0)).label("active_count")
+            )
+            .where(func.date(TimeSlot.slot_datetime) >= today_date)
+            .group_by(func.date(TimeSlot.slot_datetime))
+            .subquery()
+        )
+
+        result = await session.execute(
+            select(subq.c.slot_date)
+            .where(subq.c.active_count == 0)
+            .order_by(subq.c.slot_date.desc())
+        )
+        closed_dates = result.scalars().all()
+
+    return closed_dates
