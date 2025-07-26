@@ -23,9 +23,9 @@ def run_bot():
     init_db()
     application = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    #async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    #    print(f"Ошибка: {context.error}")
-    #application.add_error_handler(error_handler)
+    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        print(f"Ошибка: {context.error}")
+    application.add_error_handler(error_handler)
 
     # Объединённый ConversationHandler
     full_conv_handler = ConversationHandler(
@@ -69,7 +69,7 @@ def run_bot():
                 CallbackQueryHandler(show_admin_menu, pattern=r'^admin_back_to_admin_menu$')
             ],
             SEND_NOTIFICATION: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, process_notification_text),
+                MessageHandler(filters.TEXT | filters.PHOTO | filters.VIDEO, process_notification_text),
                 CallbackQueryHandler(send_notification_to_users, pattern='^admin_send_notification_confirm$'),
                 CallbackQueryHandler(show_admin_menu, pattern='^admin_back_to_admin_menu$')
             ],
@@ -143,12 +143,17 @@ async def universal_button_handler(update: Update, context: ContextTypes.DEFAULT
             await button_handler(update, context)
 
 async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get("notification_text") is not None:
+    if context.user_data.get('notification_text') is not None:
         return
-
+    if context.user_data.get('_conversation'):
+        return
     user = await get_or_create_user(update.effective_user.id)
+
     if user and user.phone:
-        await show_main_menu(update, context)
+        if user.role == UserRole.ADMIN:
+            await show_admin_menu(update, context)
+        else:
+            await show_main_menu(update, context)
     else:
         await update.message.reply_text("Для начала работы с ботом нажмите /start")
 

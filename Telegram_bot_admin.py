@@ -1,3 +1,4 @@
+import telegram
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ContextTypes, 
@@ -20,42 +21,26 @@ CLOSE_BOOKING_DATE, CLOSE_BOOKING_TIME, CONFIRM_CLOSE_SLOT = range(9, 12)
 SEARCH_BY_PHONE = 20
 
 async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Проверяем, это callback query или обычное сообщение
-    if update.callback_query:
-        query = update.callback_query
-        await query.answer()
-        chat_id = query.message.chat_id
-        message_id = query.message.message_id
-    else:
-        chat_id = update.effective_chat.id
-        message_id = None
-    
+    # Получаем chat_id
+    chat_id = update.effective_chat.id
+
     keyboard = [
         [InlineKeyboardButton("❌ Закрыть день для записи", callback_data='admin_close_day')],
         [InlineKeyboardButton("❌ Закрыть определенную запись", callback_data='admin_close_booking')],
         [InlineKeyboardButton("🔍 Поиск по телефону", callback_data='admin_search_by_phone')],
         [InlineKeyboardButton("📢 Рассылка", callback_data='admin_send_notification')],
-        [InlineKeyboardButton("📅 Расписание",callback_data='admin_view_timetable')],
+        [InlineKeyboardButton("📅 Расписание", callback_data='admin_view_timetable')],
         [InlineKeyboardButton("➕ Добавить запись с комментарием", callback_data='admin_add_slot_comment')],
         [InlineKeyboardButton("🎫 Выдать по сертификату", callback_data='admin_give_visit_sertificate')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    text = "Панель администратора:"
-    
-    if message_id:
-        await context.bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=text,
-            reply_markup=reply_markup
-        )
-    else:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=text,
-            reply_markup=reply_markup
-        )
+
+    # Отправляем новое сообщение
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="📋 Панель администратора:",
+        reply_markup=reply_markup
+    )
 
 async def handle_close_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -198,8 +183,12 @@ async def handle_send_notification(update: Update, context: ContextTypes.DEFAULT
 
 
 async def process_notification_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    notification_text = update.message.text
-    context.user_data['notification_text'] = notification_text
+    message = update.message
+
+    # Сохраняем текст и медиа в user_data
+    context.user_data['notification_text'] = message.caption or message.text
+    context.user_data['photo'] = message.photo[-1].file_id if message.photo else None
+    context.user_data['video'] = message.video.file_id if message.video else None
 
     keyboard = [
         [InlineKeyboardButton("✅ Отправить", callback_data='admin_send_notification_confirm')],
@@ -207,23 +196,37 @@ async def process_notification_text(update: Update, context: ContextTypes.DEFAUL
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
+    preview_text = context.user_data['notification_text']
+
     # Удаляем предыдущее сообщение с просьбой ввести текст
     try:
         await context.bot.delete_message(
-            chat_id=update.effective_chat.id,
-            message_id=update.message.message_id - 1
+            chat_id=message.chat_id,
+            message_id=message.message_id - 1
         )
     except Exception as e:
         print(f"Ошибка удаления сообщения: {e}")
 
-    # Отправляем новое сообщение с подтверждением
-    await update.message.reply_text(
-        text=f"Текст рассылки:\n\n{notification_text}\n\nПодтвердите отправку:",
-        reply_markup=reply_markup
-    )
+    # Предпросмотр сообщения с учетом медиа
+    if context.user_data['photo']:
+        await message.reply_photo(
+            photo=context.user_data['photo'],
+            caption=f"Текст рассылки:\n\n{preview_text}\n\nПодтвердите отправку:",
+            reply_markup=reply_markup
+        )
+    elif context.user_data['video']:
+        await message.reply_video(
+            video=context.user_data['video'],
+            caption=f"Текст рассылки:\n\n{preview_text}\n\nПодтвердите отправку:",
+            reply_markup=reply_markup
+        )
+    else:
+        await message.reply_text(
+            text=f"Текст рассылки:\n\n{preview_text}\n\nПодтвердите отправку:",
+            reply_markup=reply_markup
+        )
 
     return SEND_NOTIFICATION
-
 
 async def send_notification_to_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -231,13 +234,21 @@ async def send_notification_to_users(update: Update, context: ContextTypes.DEFAU
 
     user = await get_or_create_user(update.effective_user.id)
     if not user or user.role != UserRole.ADMIN:
-        await query.edit_message_text("⛔ У вас нет прав для выполнения этой операции")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="⛔ У вас нет прав для выполнения этой операции"
+        )
         return ConversationHandler.END
 
     notification_text = context.user_data.get('notification_text', '')
+    photo = context.user_data.get('photo')
+    video = context.user_data.get('video')
 
-    if not notification_text:
-        await query.edit_message_text("Ошибка: текст рассылки не найден")
+    if not any([notification_text, photo, video]):
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="❌ Нельзя отправить пустое сообщение. Добавьте текст, фото или видео."
+        )
         return ConversationHandler.END
 
     try:
@@ -247,27 +258,42 @@ async def send_notification_to_users(update: Update, context: ContextTypes.DEFAU
 
         for user in users:
             try:
-                await context.bot.send_message(
-                    chat_id=user.telegram_id,
-                    text=f"📢 Рассылка от администратора:\n\n{notification_text}"
-                )
+                caption = f"📢 Рассылка от администратора:\n\n{notification_text}" if notification_text else None
+
+                if photo:
+                    await context.bot.send_photo(chat_id=user.telegram_id, photo=photo, caption=caption)
+                elif video:
+                    await context.bot.send_video(chat_id=user.telegram_id, video=video, caption=caption)
+                else:
+                    await context.bot.send_message(chat_id=user.telegram_id, text=caption)
                 success += 1
             except Exception as e:
-                print(f"Ошибка отправки сообщения пользователю {user.telegram_id}: {str(e)}")
+                print(f"Ошибка отправки пользователю {user.telegram_id}: {e}")
                 failed += 1
 
-        await query.edit_message_text(
-            text=f"Рассылка завершена:\nУспешно: {success}\nНе удалось: {failed}"
+        result_text = f"✅ Рассылка завершена:\nУспешно: {success}\nНе удалось: {failed}"
+
+        # Удаляем старое сообщение (если оно было)
+        if query and query.message:
+            try:
+                await context.bot.delete_message(chat_id=query.message.chat_id, message_id=query.message.message_id)
+            except Exception as e:
+                print(f"Ошибка при удалении сообщения: {e}")
+
+        # Отправляем новое сообщение с результатами и кнопками админки
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=result_text
         )
+        await show_admin_menu(update, context)
+
     finally:
-        pass
+        context.user_data.pop('notification_text', None)
+        context.user_data.pop('photo', None)
+        context.user_data.pop('video', None)
 
-    # Очищаем временные данные
-    context.user_data.pop('notification_text', None)
-
-    # Возвращаем в админ-панель
-    await show_admin_menu(update, context)
     return ConversationHandler.END
+
 
 '''Обзор расписания'''
 async def handle_view_timetable(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -383,17 +409,27 @@ async def select_add_slot_time(update: Update, context: ContextTypes.DEFAULT_TYP
     slots = await get_free_slots_by_date(date_obj)
 
     if not slots:
-        await query.edit_message_text(f"Нет свободных слотов на дату {date_str}.")
-        return ConversationHandler.END
+        keyboard = [
+            [InlineKeyboardButton("↩️ Назад", callback_data='admin_back_to_admin_menu')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            f"Нет свободных слотов на дату {date_str}.",
+            reply_markup=reply_markup
+        )
+        return ConversationHandler.END  # или верни нужное состояние, если хочешь
 
     keyboard = [
         [InlineKeyboardButton(slot.slot_datetime.strftime("%H:%M"), callback_data=f"admin_add_slot_time_{slot.id}")]
         for slot in slots
     ]
-    keyboard.append([InlineKeyboardButton("Отмена", callback_data="admin_cancel_add_slot")])
+    keyboard.append([InlineKeyboardButton("↩️ Назад", callback_data='admin_back_to_admin_menu')])
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await query.edit_message_text(f"Выберите время для записи на {date_str}:", reply_markup=reply_markup)
+    await query.edit_message_text(
+        f"Выберите время для записи на {date_str}:",
+        reply_markup=reply_markup
+    )
     return ADD_SLOT_TIME
 
 

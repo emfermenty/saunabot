@@ -275,13 +275,12 @@ async def bind_sertificate_and_user(user_id: int, sertificate_id: int):
 
         if user and sert:
             user.count_of_sessions_alife_steam = (
-                (user.count_of_sessions_alife_steam or 0) + sert.countofsessions_alife_steam
+                (user.count_of_sessions_alife_steam or 0) + (sert.countofsessions_alife_steam or 0)
             )
             user.count_of_session_sinusoid = (
-                (user.count_of_session_sinusoid or 0) + sert.countofsessions_sinusoid
+                (user.count_of_session_sinusoid or 0) + (sert.countofsessions_sinusoid or 0)
             )
             await session.commit()
-
 async def get_unique_slot_dates() -> list[date]:
     async with Session() as session:
         today = date.today()
