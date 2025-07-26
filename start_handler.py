@@ -11,8 +11,8 @@ from Telegram_bot_admin import *
 from Models import *
 from scheduler.scheduler import configure_scheduler, start_scheduler
 from scheduler.scheduler_handler import button_callback_scheduler
-
-BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
+BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
+#BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
 BANYA_NAME = "Живой пар"
 BANYA_ADDRESS = "Комсомольский проспект, 15, г. Краснокамск"
 CONTACT_PHONE = "+7 (999) 123-45-67"
@@ -124,7 +124,7 @@ async def universal_button_handler(update: Update, context: ContextTypes.DEFAULT
     query = update.callback_query
     await query.answer()
 
-    user = get_or_create_user(update.effective_user.id)
+    user = await get_or_create_user(update.effective_user.id)
 
     is_admin_callback = query.data.startswith('admin_')
 
@@ -143,7 +143,7 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if context.user_data.get("notification_text") is not None:
         return
 
-    user = get_or_create_user(update.effective_user.id)
+    user = await get_or_create_user(update.effective_user.id)
     if user and user.phone:
         await show_main_menu(update, context)
     else:
@@ -153,7 +153,7 @@ async def handle_any_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     tg_id = user.id
-    db_user = get_or_create_user(tg_id)
+    db_user = await get_or_create_user(tg_id)
 
     if db_user and db_user.phone:
         if db_user.role == UserRole.ADMIN:

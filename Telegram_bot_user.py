@@ -46,7 +46,7 @@ async def ask_for_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Не удалось удалить сообщение: {e}")
 
     user_id = update.callback_query.from_user.id
-    user = get_or_create_user(user_id)
+    user = await get_or_create_user(user_id)
     
     # Проверяем, есть ли уже номер телефона
     if user and user.phone:
@@ -75,18 +75,17 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Пожалуйста, поделитесь своим собственным номером телефона.")
         return
 
-    update_user_phone(user.id, contact.phone_number)
+    await update_user_phone(user.id, contact.phone_number)
     
     # Удаляем клавиатуру с кнопкой "Поделиться номером"
     await update.message.reply_text("Спасибо! Номер получен ✅", reply_markup=ReplyKeyboardRemove())
 
     # Проверяем роль пользователя после сохранения номера
-    db_user = get_or_create_user(user.id)
+    db_user = await get_or_create_user(user.id)
     if db_user.role == UserRole.ADMIN:
         await show_admin_menu(update, context)
     else:
         await show_main_menu(update, context)
-        
 
 def get_procedure_keyboard():
     keyboard = [
@@ -104,7 +103,7 @@ async def handle_procedure_selection(update: Update, context: ContextTypes.DEFAU
     await select_date(update, context)
 
 async def select_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    dates = get_available_dates()
+    dates = await get_available_dates()
     if not dates:
         await update.callback_query.edit_message_text("Нет доступных дат для записи.")
         return SELECT_PROCEDURE  # или показать меню
@@ -167,7 +166,7 @@ async def handle_date_selection(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data["selected_date"] = selected_date  # Сохраняем объект date, а не строку
 
     # Получаем доступные слоты, передавая строку в формате YYYY-MM-DD
-    slots = get_available_times_by_date(date_str)
+    slots = await get_available_times_by_date(date_str)
 
     # Сохраняем доступные слоты: id → время
     context.user_data["available_slots"] = {
@@ -196,7 +195,7 @@ async def handle_selected_date(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data["selected_date"] = selected_date  # Сохраняем объект date
 
     # Вызываем показ слотов времени, передавая строку в формате YYYY-MM-DD
-    slots = get_available_times_by_date(date_str)
+    slots = await get_available_times_by_date(date_str)
 
     if not slots:
         await query.edit_message_text(text=f"На {selected_date.strftime('%d.%m.%Y')} нет доступных слотов.",
@@ -227,8 +226,8 @@ async def handle_time_selection(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data['slot_id'] = slot_id
     context.user_data['booking_time'] = context.user_data['available_slots'][slot_id]
     procedure_raw = context.user_data.get('procedure')
-    event = get_event(procedure_raw)
-    user = get_or_create_user(query.from_user.id)
+    event = await get_event(procedure_raw)
+    user = await get_or_create_user(query.from_user.id)
     await query.edit_message_text(
         text=(
             f"🗓 Дата: {context.user_data['selected_date']}\n"
@@ -243,7 +242,7 @@ async def handle_time_selection(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def show_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.callback_query.from_user.id
-    bookings = get_user_bookings(user_id)
+    bookings = await get_user_bookings(user_id)
 
     if not bookings:
         await update.callback_query.edit_message_text(
@@ -302,15 +301,15 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     slot_id = context.user_data['slot_id']
     by_certificate = context.user_data.get("by_certificate", False)
 
-    user = get_or_create_user(user_id)
-    event = get_event(procedure_raw)
+    user = await get_or_create_user(user_id)
+    event = await get_event(procedure_raw)
     date_formatted = selected_date.strftime("%d.%m.%Y")
 
     try:
         if by_certificate:
-            confirm_booking_bd_with_sertificate(procedure_raw, user_id, slot_id, event.id)
+            await confirm_booking_bd_with_sertificate(procedure_raw, user_id, slot_id, event.id)
         else:
-            confirm_booking_bd(procedure_raw, user_id, slot_id)
+            await confirm_booking_bd(procedure_raw, user_id, slot_id)
 
         await query.edit_message_text(
             f"✅ Вы успешно записаны!\n\nДата: {date_formatted}\nВремя: {time}\nПроцедура: {event.title}" +
@@ -322,10 +321,9 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return ConversationHandler.END
 
-
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    user = get_or_create_user(user_id)
+    user = await get_or_create_user(user_id)
     
     # Если у пользователя нет номера телефона, перенаправляем на его запрос
     if not user or not user.phone:
@@ -373,7 +371,7 @@ async def ask_booking_id_to_edit(update: Update, context: ContextTypes.DEFAULT_T
 
 async def show_available_dates(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    dates = get_available_dates()
+    dates = await get_available_dates()
     page = 0
 
     if not dates:
@@ -395,7 +393,7 @@ async def handle_selected_date(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data["selected_date"] = selected_date
 
     # Вызываем показ слотов времени, как в handle_date_selection
-    slots = get_available_times_by_date(selected_date.isoformat())
+    slots = await get_available_times_by_date(selected_date.isoformat())
 
     if not slots:
         await query.edit_message_text(text=f"На {selected_date.strftime('%d.%m.%Y')} нет доступных слотов.",
@@ -420,7 +418,7 @@ async def handle_selected_date(update: Update, context: ContextTypes.DEFAULT_TYP
 async def delete_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     booking_id = int(query.data.replace("delete_booking_", ""))
-    clear_booking(booking_id)
+    await clear_booking(booking_id)
     await query.answer("Запись отменена ❌")
     await show_bookings(update, context)
 
@@ -432,7 +430,7 @@ async def handle_date_pagination(update: Update, context: ContextTypes.DEFAULT_T
     dates = context.user_data.get("dates")
 
     if not dates:
-        dates = get_available_dates()
+        dates = await get_available_dates()
         context.user_data["dates"] = dates
 
     context.user_data["date_page"] = new_page
@@ -441,7 +439,7 @@ async def handle_date_pagination(update: Update, context: ContextTypes.DEFAULT_T
 
 async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.callback_query.from_user.id
-    user = get_or_create_user(user_id)
+    user = await get_or_create_user(user_id)
 
     if not user:
         await update.callback_query.edit_message_text(
@@ -472,7 +470,7 @@ async def obtainment_sertificate(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
 
-    sertificates = load_sertificate()
+    sertificates = await load_sertificate()
 
     if not sertificates:
         await query.edit_message_text("Сертификатов пока нет.")
@@ -492,7 +490,7 @@ async def handle_selected_sertificate(update: Update, context: ContextTypes.DEFA
     query = update.callback_query
     await query.answer()
     sub_id = int(query.data.split("_")[1])
-    sert = get_sertificate(sub_id)
+    sert = await get_sertificate(sub_id)
     print(sub_id)
     if sert:
         text = f"Вы выбрали {sert.title}\nНажмите на кнопку, после чего администратору придет сообщение с подтверждением"
@@ -527,36 +525,51 @@ async def send_sertificate_request_to_admin(update: Update, context: ContextType
 
 '''сообщение администратору с сертификатом'''
 async def notify_admins_about_certificate(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, sub_id: int):
-    sert = get_sertificate(sub_id)
-    user = get_or_create_user(user_id)
-    admins = take_only_admins()
+    sert = await get_sertificate(sub_id)
+    user = await get_or_create_user(user_id)
+    admins = await take_only_admins()
 
-    text = f"Пользователь {user.telegram_id}\n С номером: {user.phone}\n запрашивает сертификат: {sert.title}\nПодтвердите выдачу."
+    key = f"sert_request_{sub_id}_{user_id}"
+    context.bot_data[key] = []
+    text = (f"[Пользователь](tg://user?id={user.telegram_id})\n"
+            f" с номером {user.phone}\n "
+            f"запрашивает сертификат: {sert.title}\n"
+            f"Подтвердите выдачу.")
 
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("✅ Подтвердить", callback_data=f'confirm_sert_{sub_id}_{user_id}')],
         [InlineKeyboardButton("❌ Отклонить", callback_data=f'deny_sert_{sub_id}_{user_id}')]
     ])
-
     for admin in admins:
         try:
-            await context.bot.send_message(
+            msg = await context.bot.send_message(
                 chat_id=admin.telegram_id,
-                text=f"[Пользователь](tg://user?id={user.telegram_id})\n с номером {user.phone}\n запрашивает сертификат: {sert.title}\nПодтвердите выдачу.",
+                text=text,
                 reply_markup=keyboard,
                 parse_mode="Markdown"
             )
+            # Сохраняем chat_id и message_id
+            context.bot_data[key].append((admin.telegram_id, msg.message_id))
         except Exception as e:
             print(f"Ошибка отправки админу {admin.telegram_id}: {e}")
 
 async def accepting_setificate(update: Update, context: ContextTypes, user_id: int, sub_id: int):
-    bind_sertificate_and_user(user_id, sub_id)
-    sert = get_sertificate(sub_id)
+    await bind_sertificate_and_user(user_id, sub_id)
+    sert = await get_sertificate(sub_id)
     if sert.countofsessions_alife_steam:
         count = sert.countofsessions_alife_steam
     else:
         count = sert.countofsessions_sinusoid
     await context.bot.send_message(chat_id=user_id, text=f"Вам успешно одобрен сертификат!\n\n Количество занятий по сертификату {count}")
+    key = f"sert_request_{sub_id}_{user_id}"
+    messages_to_delete = context.bot_data.get(key, [])
+    for chat_id, message_id in messages_to_delete:
+        try:
+            await context.bot.delete_message(chat_id=chat_id, message_id=message_id)
+        except Exception as e:
+            print(f"Не удалось удалить сообщение у {chat_id}: {e}")
+
+    context.bot_data.pop(key, None)
 
 def get_confirmation_keyboard(user=None, procedure_id=None):
     buttons = [
@@ -625,9 +638,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if match:
             sub_id = int(match.group(1))
             user_id = int(match.group(2))
-        print(f"{sub_id} +  + {user_id}")
-        await accepting_setificate(update, context, user_id, sub_id)
-        await query.message.delete()
+            await accepting_setificate(update, context, user_id, sub_id)
+            print(f"{sub_id} +  + {user_id}")
     elif query.data.startswith("deny_sert_"):
         match = re.match(r"^deny_sert_(\d+)_(\d+)$", query.data)
         if match:

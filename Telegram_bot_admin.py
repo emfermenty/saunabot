@@ -9,7 +9,7 @@ from telegram.ext import (
 from Models import User, TimeSlot, SlotStatus, UserRole
 from Services import close_session_of_day, get_unique_slot_dates, get_slots_by_date, get_available_dates_for_new_slots, \
     get_free_slots_by_date, save_new_slot_comment, get_all_events, get_slots_to_close_day, close_single_slot, \
-    get_or_create_user, search_phone
+    get_or_create_user, search_phone, get_all_users
 from dbcontext.db import Session
 from datetime import date, datetime
 
@@ -61,7 +61,7 @@ async def handle_close_day(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    dates = get_slots_to_close_day()
+    dates = await get_slots_to_close_day()
     
     if not dates:
         await query.edit_message_text("Нет доступных дат для закрытия.")
@@ -93,7 +93,7 @@ async def start_phone_search(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def handle_phone_search(update: Update, context: ContextTypes.DEFAULT_TYPE):
     phone_input = update.message.text.strip()
-    user = search_phone(phone_input)
+    user = await search_phone(phone_input)
 
     if phone_input.startswith("8"):
         phone_input = "+7" + phone_input[1:]
@@ -142,7 +142,7 @@ async def execute_close_date(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     try:
         # Получаем и деактивируем все слоты на выбранную дату
-        times = close_session_of_day(date_str)
+        times = await close_session_of_day(date_str)
         await query.edit_message_text(f"Дата {date_str} успешно закрыта для записи. Деактивировано {len(times)} слотов.")
     except Exception as e:
         await query.edit_message_text(f"Ошибка при закрытии даты: {str(e)}")
@@ -154,9 +154,7 @@ async def handle_view_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
-    session = Session()
-    users = session.query(User).order_by(User.telegram_id).all()
-    session.close()
+    users = await get_all_users()
     
     if not users:
         await query.edit_message_text("Нет зарегистрированных пользователей.")
@@ -257,7 +255,6 @@ async def process_notification_text(update: Update, context: ContextTypes.DEFAUL
         reply_markup=reply_markup
     )
 
-    # Возвращаем специальное состояние для ожидания подтверждения
     return SEND_NOTIFICATION
 
 
@@ -265,8 +262,7 @@ async def send_notification_to_users(update: Update, context: ContextTypes.DEFAU
     query = update.callback_query
     await query.answer()
 
-    # Проверяем, что пользователь всё ещё админ
-    user = get_or_create_user(update.effective_user.id)
+    user = await get_or_create_user(update.effective_user.id)
     if not user or user.role != UserRole.ADMIN:
         await query.edit_message_text("⛔ У вас нет прав для выполнения этой операции")
         return ConversationHandler.END
@@ -277,10 +273,10 @@ async def send_notification_to_users(update: Update, context: ContextTypes.DEFAU
         await query.edit_message_text("Ошибка: текст рассылки не найден")
         return ConversationHandler.END
 
-    session = Session()
+    #session = Session()
     try:
-        users = session.query(User).filter(User.telegram_id.isnot(None)).all()
-
+        #users = session.query(User).filter(User.telegram_id.isnot(None)).all()
+        users = await get_all_users()
         success = 0
         failed = 0
 
@@ -299,7 +295,8 @@ async def send_notification_to_users(update: Update, context: ContextTypes.DEFAU
             text=f"Рассылка завершена:\nУспешно: {success}\nНе удалось: {failed}"
         )
     finally:
-        session.close()
+        pass
+        #session.close()
 
     # Очищаем временные данные
     context.user_data.pop('notification_text', None)
@@ -312,7 +309,7 @@ async def send_notification_to_users(update: Update, context: ContextTypes.DEFAU
 async def handle_view_timetable(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    dates = get_unique_slot_dates()
+    dates = await get_unique_slot_dates()
     if not dates:
         await query.edit_message_text("Нет доступных дат.")
         return
@@ -336,13 +333,14 @@ async def show_timetable_for_date(update: Update, context: ContextTypes.DEFAULT_
     date_str = query.data.replace("admin_timetable_date_", "")
     selected_date = datetime.strptime(date_str, "%Y-%m-%d").date()
 
-    slots = get_slots_by_date(selected_date)
+    slots = await get_slots_by_date(selected_date)
 
     # Фильтруем слоты, у которых есть статус
     slots = [slot for slot in slots if slot.status is not None]
-
+    keyboard = [[InlineKeyboardButton("↩️ Назад", callback_data='admin_view_timetable')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     if not slots:
-        await query.edit_message_text(f"На {selected_date.strftime('%Y-%m-%d')} записей нет.")
+        await query.edit_message_text(text="На {selected_date.strftime('%Y-%m-%d')} записей нет.", reply_markup=reply_markup)
         return
 
     lines = []
@@ -385,9 +383,6 @@ async def show_timetable_for_date(update: Update, context: ContextTypes.DEFAULT_
     if len(text) > 4000:
         text = "\n\n".join(lines[:30]) + "\n\n⚠️ Слишком много данных. Показаны только первые 30."
 
-    keyboard = [[InlineKeyboardButton("↩️ Назад", callback_data='admin_view_timetable')]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-
     await query.edit_message_text(
         text=f"📋 Расписание на {selected_date.strftime('%Y-%m-%d')}:\n\n{text}",
         reply_markup=reply_markup
@@ -398,7 +393,7 @@ async def start_add_slot_comment(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
 
-    dates = get_available_dates_for_new_slots()
+    dates = await get_available_dates_for_new_slots()
     if not dates:
         await query.edit_message_text("Нет доступных дат для создания записи.")
         return ConversationHandler.END
@@ -421,7 +416,7 @@ async def select_add_slot_time(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data['add_slot_date'] = date_str
 
     date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
-    slots = get_free_slots_by_date(date_obj)
+    slots = await get_free_slots_by_date(date_obj)
 
     if not slots:
         await query.edit_message_text(f"Нет свободных слотов на дату {date_str}.")
@@ -444,7 +439,7 @@ async def select_event_for_slot(update: Update, context: ContextTypes.DEFAULT_TY
     slot_id = int(query.data.replace("admin_add_slot_time_", ""))
     context.user_data['admin_add_slot_time_id'] = slot_id
 
-    events = get_all_events()
+    events = await get_all_events()
     if not events:
         await query.edit_message_text("Нет доступных мероприятий.")
         return ConversationHandler.END
@@ -490,7 +485,7 @@ async def save_slot_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     slot_id = context.user_data.get('admin_add_slot_time_id')
     event_id = context.user_data.get('admin_selected_event_id')
     print(f"[DEBUG] {slot_id}, {comment}, {event_id}")
-    success = save_new_slot_comment(slot_id, comment, event_id)
+    success = await save_new_slot_comment(slot_id, comment, event_id)
     if not success:
         await update.message.reply_text("Ошибка: выбранный слот не найден.")
         return ConversationHandler.END
@@ -512,7 +507,7 @@ async def start_close_booking(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
 
-    dates = get_unique_slot_dates()
+    dates = await get_unique_slot_dates()
     if not dates:
         await query.edit_message_text("Нет доступных дат.")
         return ConversationHandler.END
@@ -531,7 +526,7 @@ async def select_slot_to_close(update: Update, context: ContextTypes.DEFAULT_TYP
     date_str = query.data.replace("admin_close_booking_date_", "")
     context.user_data['close_booking_date'] = date_str
 
-    slots = get_slots_by_date(datetime.strptime(date_str, "%Y-%m-%d").date())
+    slots = await get_slots_by_date(datetime.strptime(date_str, "%Y-%m-%d").date())
     if not slots:
         await query.edit_message_text("На выбранную дату нет слотов.")
         return ConversationHandler.END
@@ -575,7 +570,7 @@ async def execute_close_slot(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
 
     slot_id = context.user_data.get("slot_to_close_id")
-    msg = close_single_slot(slot_id)
+    msg = await close_single_slot(slot_id)
 
     await query.edit_message_text(msg)
     await show_admin_menu(update, context)

@@ -1,14 +1,16 @@
 # db.py
 from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from Models import Base
 
 # Создание движка
-engine = create_engine('sqlite:///bot.db')
+engine = create_async_engine("sqlite+aiosqlite:///bot.db", echo=False)
 
 # Создание сессии
-Session = sessionmaker(bind=engine)
+Session = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 # Создание таблиц
-def init_db():
-    Base.metadata.create_all(engine)
+async def init_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
