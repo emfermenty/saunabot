@@ -436,15 +436,16 @@ async def add_new_booking_day():
             new_date = last_slot.slot_datetime.date() + timedelta(days=1)
         else:
             new_date = datetime.now(tz).date()
-
+        while new_date.weekday() >= 5:
+            new_date += timedelta(days=1)
         new_slots = []
-        for hour in range(9, 22):  # 9..21 включительно
+        for hour in range(9, 22):
             slot_dt = datetime.combine(new_date, time(hour=hour))
             existing_slot = await session.execute(
                 select(TimeSlot).where(TimeSlot.slot_datetime == slot_dt)
             )
             if existing_slot.scalars().first():
-                continue  # если слот уже есть — пропускаем
+                continue
             new_slots.append(TimeSlot(
                 slot_datetime=slot_dt,
                 user_id=None,
