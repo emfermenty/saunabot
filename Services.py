@@ -562,3 +562,54 @@ async def apply_latest_subscription_to_user(telegram_id: int) -> tuple[bool, str
         user.count_of_session_sinusoid = (user.count_of_session_sinusoid or 0) + (subscription.countofsessions_sinusoid or 0)
         await session.commit()
         return True, "✅ Сертификат успешно выдан."
+async def add_cert_to_user(telegram_id: int, cert_type: str) -> str:
+    async with Session() as session:
+        user = await session.get(User, telegram_id)
+        if not user:
+            return "❌ Пользователь не найден."
+
+        if cert_type == "sinusoid":
+            user.count_of_session_sinusoid = (user.count_of_session_sinusoid or 0) + 5
+            field_text = "Синусоида"
+        elif cert_type == "steam":
+            user.count_of_sessions_alife_steam = (user.count_of_sessions_alife_steam or 0) + 5
+            field_text = "Живой пар"
+        else:
+            return "❌ Неизвестный тип сертификата."
+
+        await session.commit()
+        return f"✅ Добавлено 5 занятий по: {field_text}"
+
+
+async def clear_single_slot(slot_id: int) -> str:
+    async with Session() as session:
+        try:
+            slot_result = await session.get(TimeSlot, slot_id)
+            if not slot_result:
+                return "Слот не найден."
+
+            slot = slot_result
+            result = slot.user_id
+            if slot.user_id and slot.with_subscribtion:
+                user = await session.get(User, slot.user_id)
+                if user and slot.event_id:
+                    event = await session.get(Event, slot.event_id)
+
+                    if event:
+                        if "Синусоида" in event.title and user.count_of_session_sinusoid is not None:
+                            user.count_of_session_sinusoid += 1
+                        elif "пар" in event.title and user.count_of_sessions_alife_steam is not None:
+                            user.count_of_sessions_alife_steam += 1
+
+            # Очищаем слот
+            slot.isActive = True
+            slot.user_id = None
+            slot.event_id = None
+            slot.status = None
+            slot.with_subscribtion = None
+            slot.created_at = None
+
+            await session.commit()
+            return result
+        finally:
+            await session.close()

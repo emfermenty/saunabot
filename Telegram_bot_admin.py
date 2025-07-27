@@ -11,7 +11,8 @@ from Models import User, TimeSlot, SlotStatus, UserRole
 from Services import close_session_of_day, get_unique_slot_dates, get_slots_by_date, get_available_dates_for_new_slots, \
     get_free_slots_by_date, save_new_slot_comment, get_all_events, get_slots_to_close_day, close_single_slot, \
     get_or_create_user, get_all_users, add_new_booking_day, get_closed_days, open_day_for_booking_by_date, \
-    get_unclosed_days, make_admin, update_cert_counts, apply_latest_subscription_to_user
+    get_unclosed_days, make_admin, update_cert_counts, apply_latest_subscription_to_user, add_cert_to_user, \
+    get_user_bookings, clear_single_slot
 from dbcontext.db import Session
 from datetime import date, datetime
 
@@ -21,6 +22,7 @@ ADD_SLOT_DATE, ADD_SLOT_TIME, ADD_SLOT_COMMENT, SELECT_EVENT = range(5, 9)
 CLOSE_BOOKING_DATE, CLOSE_BOOKING_TIME, CONFIRM_CLOSE_SLOT = range(9, 12)
 SEARCH_BY_PHONE = 20
 CLOSE_BOOKING_DATE_USER = 21
+
 
 def get_admin_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
@@ -633,30 +635,111 @@ async def show_all_users_handler(update: Update, context: ContextTypes.DEFAULT_T
         await query.edit_message_text("❌ Пользователи не найдены.")
         return
 
-    messages = []
+    # Создаём список кнопок с пользователями
+    keyboard = []
     for user in users:
-        username_link = (
-            f'<a href="tg://user?id={user.telegram_id}">профиль</a>'
-            if user.telegram_id else "не указан"
-        )
-        messages.append(
-            f"🔗 Телеграм: {username_link}\n"
-            f"📱 Телефон: {user.phone or 'не указан'}\n"
-            f"👤 Роль: {user.role.value if user.role else 'не указана'}\n"
-            f"💨 Живой пар: {user.count_of_sessions_alife_steam or 0}\n"
-            f"📈 Синусоида: {user.count_of_session_sinusoid or 0}\n"
-            f"──────────────"
-        )
-    batch_size = 5
-    for i in range(0, len(messages), batch_size):
-        chunk = "\n".join(messages[i:i + batch_size])
-        await query.message.reply_text(chunk, parse_mode="HTML")
+        if user.phone:
+            last_10_digits = ''.join(filter(str.isdigit, user.phone))[-10:]
+            keyboard.append([
+                InlineKeyboardButton(
+                    text=user.phone,
+                    callback_data=f"admin_search_phone_result_{last_10_digits}"
+                )
+            ])
+    keyboard.append([
+        InlineKeyboardButton("↩️ Назад", callback_data='admin_back_to_admin_menu')
+    ])
 
-    await query.message.reply_text(
-        "⬅️ Назад в админ-панель",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("↩️ Назад", callback_data='admin_back_to_admin_menu')]
+    await query.edit_message_text(
+        "📋 Список пользователей:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+async def handle_search_phone_result_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    phone_digits = data.replace("admin_search_phone_result_", "")
+    users = await get_all_users()
+
+    found_user = next(
+        (user for user in users if user.phone and ''.join(filter(str.isdigit, user.phone))[-10:] == phone_digits),
+        None
+    )
+
+    if found_user:
+        username_link = (
+            f'<a href="tg://user?id={found_user.telegram_id}">профиль</a>'
+            if found_user.telegram_id else "не указан"
+        )
+
+        text = (
+            f"✅ Пользователь найден:\n"
+            f"📱 Телефон: {found_user.phone}\n"
+            f"🆔 Telegram ID: {username_link}\n\n"
+            f"💨 Живой пар: {found_user.count_of_sessions_alife_steam or 0} занятий\n"
+            f"📈 Синусоида: {found_user.count_of_session_sinusoid or 0} занятий"
+        )
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("👑 Сделать админом", callback_data=f"admin_make_admin_{found_user.telegram_id}")],
+            [InlineKeyboardButton("🗑 Снять занятия", callback_data=f"admin_clear_cert_{found_user.telegram_id}")],
+            [InlineKeyboardButton("🎫 Выдать сертификат", callback_data=f"admin_give_cert_{found_user.telegram_id}")],
+            [InlineKeyboardButton("📅 Посмотреть расписание",
+                                  callback_data=f"admin_show_schedule_{found_user.telegram_id}")],
+            [InlineKeyboardButton("↩️ Назад", callback_data="admin_watch_users")]
         ])
+
+        await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
+    else:
+        await query.edit_message_text("❌ Пользователь не найден.")
+
+async def admin_show_schedule_handler(update, context):
+    query = update.callback_query
+    await query.answer()
+
+    telegram_id = int(query.data.replace("admin_show_schedule_", ""))
+    await show_bookings(update, context, telegram_id)
+async def show_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id=None):
+    if user_id is None:
+        user_id = update.callback_query.from_user.id
+
+    bookings = await get_user_bookings(user_id)
+
+    if not bookings:
+        await update.callback_query.edit_message_text(
+            "У пользователя пока нет активных записей.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("⬅️ Назад", callback_data='admin_watch_users')]
+            ])
+        )
+        return
+
+    bookings_text = "📋 Записи пользователя:\n\n ДЛЯ ОЧИСТКИ ЗАПИСИ, НАЖМИТЕ НА НЕЕ\n"
+    keyboard = []
+
+    for booking in bookings:
+        id, slot_datetime, procedure, is_active = booking
+        date_formatted = slot_datetime.strftime("%d.%m.%Y")
+        time_formatted = slot_datetime.strftime("%H:%M")
+        status_text = "✅ Активна" if is_active else "❌ Завершена"
+
+        bookings_text += f"🔹 {date_formatted} в {time_formatted} ({procedure}) - {status_text}\n"
+
+        # Если хочешь, можешь сделать возможность отмены и в админке
+        keyboard.append([
+            InlineKeyboardButton(
+                f"{date_formatted} в {time_formatted} ({procedure} - {status_text})",
+                callback_data=f'admin_confirm_delete_{id}'
+            )
+        ])
+
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data='admin_watch_users')])
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.callback_query.edit_message_text(
+        bookings_text,
+        reply_markup=reply_markup
     )
 
 async def admin_open_day_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -686,6 +769,25 @@ async def admin_open_day_handler(update: Update, context: ContextTypes.DEFAULT_T
         text="Выберите день для открытия:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+async def confirm_delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data  # пример: confirm_delete_42
+    booking_id_str = data.replace("admin_confirm_delete_", "")
+    if not booking_id_str.isdigit():
+        await query.edit_message_text("❌ Некорректный ID записи.")
+        return
+
+    booking_id = int(booking_id_str)
+
+    success = await clear_single_slot(booking_id)
+    if not success:
+        await query.edit_message_text("❌ Ошибка при отписке пользователя.")
+        return
+
+    # Показываем обновлённый список записей пользователя
+    await show_bookings(update, context, success)
 async def admin_open_day_confirm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -711,8 +813,71 @@ async def clear_user_certificates(update: Update, context: ContextTypes.DEFAULT_
     await update_cert_counts(telegram_id, sinusoid=0, alife_steam=0)
     await update.callback_query.edit_message_text("🔄 Занятия по сертификату обнулены.", reply_markup=get_admin_keyboard())
 async def give_user_certificates(update, context, telegram_id: int):
-    success, message = await apply_latest_subscription_to_user(telegram_id)
-    await update.callback_query.edit_message_text(message)
+    query = update.callback_query
+    await query.answer()
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ 5 занятий Синусоида", callback_data=f"admin_add_cert_sinusoid_{telegram_id}")],
+        [InlineKeyboardButton("➕ 5 занятий Живой пар", callback_data=f"admin_add_cert_steam_{telegram_id}")],
+        [InlineKeyboardButton("↩️ Назад", callback_data="admin_watch_users")]
+    ])
+
+    await query.edit_message_text("Выберите тип сертификата:", reply_markup=keyboard)
+async def handle_add_cert(update, context):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if data.startswith("admin_add_cert_sinusoid_"):
+        telegram_id = int(data.replace("admin_add_cert_sinusoid_", ""))
+        cert_type = "sinusoid"
+    elif data.startswith("admin_add_cert_steam_"):
+        telegram_id = int(data.replace("admin_add_cert_steam_", ""))
+        cert_type = "steam"
+    else:
+        await query.edit_message_text("❌ Ошибка: неверная команда.")
+        return
+
+    message = await add_cert_to_user(telegram_id, cert_type)
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("↩️ Назад", callback_data=f"admin_show_user_{telegram_id}")]
+    ])
+
+    await query.edit_message_text(message, reply_markup=keyboard)
+async def show_user_info_by_telegram_id(update, context, telegram_id: int):
+    query = update.callback_query
+    await query.answer()
+
+    users = await get_all_users()
+    found_user = next((user for user in users if user.telegram_id == telegram_id), None)
+
+    if not found_user:
+        await query.edit_message_text("❌ Пользователь не найден.")
+        return
+
+    username_link = (
+        f'<a href="tg://user?id={found_user.telegram_id}">профиль</a>'
+        if found_user.telegram_id else "не указан"
+    )
+
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+
+    text = (
+        f"✅ Пользователь:\n"
+        f"📱 Телефон: {found_user.phone}\n"
+        f"🆔 Telegram ID: {username_link}\n\n"
+        f"💨 Живой пар: {found_user.count_of_sessions_alife_steam or 0} занятий\n"
+        f"📈 Синусоида: {found_user.count_of_session_sinusoid or 0} занятий"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("👑 Сделать админом", callback_data=f"admin_make_admin_{found_user.telegram_id}")],
+        [InlineKeyboardButton("🗑 Снять занятия", callback_data=f"admin_clear_cert_{found_user.telegram_id}")],
+        [InlineKeyboardButton("🎫 Выдать сертификат", callback_data=f"admin_give_cert_{found_user.telegram_id}")],
+        [InlineKeyboardButton("↩️ Назад", callback_data="admin_watch_users")]
+    ])
+
+    await query.edit_message_text(text, parse_mode="HTML", reply_markup=keyboard)
 
 '''подтверждение удаления'''
 async def confirm_slot_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -787,6 +952,19 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
     elif data.startswith("admin_give_cert_"):
         telegram_id = int(data.replace("admin_give_cert_", ""))
         await give_user_certificates(update, context, telegram_id)
+    elif data == "admin_search_by_phone":
+        await handle_search_by_phone(update, context)
+    elif data.startswith("admin_search_phone_result_"):
+        await handle_search_phone_result_callback(update, context)
+    elif data.startswith("admin_add_cert_sinusoid_") or data.startswith("admin_add_cert_steam_"):
+        await handle_add_cert(update, context)
+    elif data.startswith("admin_show_user_"):
+        telegram_id = int(data.replace("admin_show_user_", ""))
+        await show_user_info_by_telegram_id(update, context, telegram_id)
+    elif data.startswith("admin_show_schedule_"):
+        await admin_show_schedule_handler(update, context)
+    elif data.startswith("admin_confirm_delete_"):
+        await confirm_delete_handler(update, context)
     else:
         await query.edit_message_text("❗️Неизвестная команда.")
 
