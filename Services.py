@@ -44,7 +44,7 @@ async def get_all_events():
 '''получение даты'''
 async def get_available_dates():
     async with Session() as session:
-        now = datetime.now()
+        now = datetime.now(tz)
 
         result = await session.execute(
             select(func.date(TimeSlot.slot_datetime))
@@ -105,7 +105,7 @@ async def get_user_bookings(telegram_id: int):
 async def get_available_times_by_date(date_str: str):
     async with Session() as session:
         date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        min_datetime = datetime.now() + timedelta(hours=1)
+        min_datetime = datetime.now(tz) + timedelta(hours=1)
 
         result = await session.execute(
             select(TimeSlot).where(
@@ -114,6 +114,7 @@ async def get_available_times_by_date(date_str: str):
                 extract('day', TimeSlot.slot_datetime) == date.day,
                 TimeSlot.user_id == None,
                 TimeSlot.isActive == True,
+                TimeSlot.comment == None,
                 TimeSlot.slot_datetime >= min_datetime
             ).order_by(TimeSlot.slot_datetime)
         )
@@ -122,7 +123,7 @@ async def get_available_times_by_date(date_str: str):
 '''должно запускать только при первом запуске'''
 async def create_hourly_timeslots(days: int = 5):
     async with Session() as session:
-        today = datetime.now().date()
+        today = datetime.now(tz).date()
         new_slots = []
         day_offset = 0
         created_days = 0
@@ -152,7 +153,7 @@ async def confirm_booking_bd(procedure, user_id, slot_id):
             slot.user_id = user_id
             slot.event_id = int(procedure) if procedure else None
             slot.status = SlotStatus.PENDING
-            slot.created_at = datetime.now()
+            slot.created_at = datetime.now(tz)
             await session.commit()
 
 async def confirm_booking_bd_with_sertificate(procedure: int, user_id: int, slot_id: int, event_id: int):
@@ -222,6 +223,9 @@ async def clear_booking(booking_id: int):
             time_slot.user_id = None
             time_slot.event_id = None
             time_slot.isActive = True
+            time_slot.status = None
+            time_slot.created_at = None
+            time_slot.with_subscribtion = None
             await session.commit()
 
 async def take_phone_by_timeslot(slot: TimeSlot):
@@ -320,7 +324,7 @@ async def get_slots_by_date(date_obj: date) -> list[TimeSlot]:
 '''получение дат где есть незакрытые слоты'''
 async def get_available_dates_for_new_slots() -> list[date]:
     async with Session() as session:
-        today = datetime.now().date()
+        today = datetime.now(tz).date()
         result = await session.execute(
             select(func.date(TimeSlot.slot_datetime))
             .where(
@@ -335,7 +339,7 @@ async def get_available_dates_for_new_slots() -> list[date]:
 '''получение слотов в целом'''
 async def get_slots_to_close_day() -> list[date]:
     async with Session() as session:
-        today = datetime.now().date()
+        today = datetime.now(tz).date()
         result = await session.execute(
             select(func.date(TimeSlot.slot_datetime))
             .where(TimeSlot.slot_datetime >= today)
@@ -431,7 +435,7 @@ async def add_new_booking_day():
         if last_slot:
             new_date = last_slot.slot_datetime.date() + timedelta(days=1)
         else:
-            new_date = datetime.now().date()
+            new_date = datetime.now(tz).date()
 
         new_slots = []
         for hour in range(9, 22):  # 9..21 включительно
@@ -441,7 +445,6 @@ async def add_new_booking_day():
             )
             if existing_slot.scalars().first():
                 continue  # если слот уже есть — пропускаем
-
             new_slots.append(TimeSlot(
                 slot_datetime=slot_dt,
                 user_id=None,
@@ -532,7 +535,13 @@ async def make_admin(telegram_id: int):
         if user:
             user.role = UserRole.ADMIN
             await session.commit()
-
+async def make_user(telegram_id: int):
+    async with Session() as session:
+        result = await session.execute(select(User).where(User.telegram_id == telegram_id))
+        user = result.scalar_one_or_none()
+        if user:
+            user.role = UserRole.USER
+            await session.commit()
 async def update_cert_counts(telegram_id: int, sinusoid: int, alife_steam: int):
     async with Session() as session:
         # Получаем пользователя через сессию
@@ -580,7 +589,6 @@ async def add_cert_to_user(telegram_id: int, cert_type: str) -> str:
         await session.commit()
         return f"✅ Добавлено 5 занятий по: {field_text}"
 
-
 async def clear_single_slot(slot_id: int) -> str:
     async with Session() as session:
         try:
@@ -600,7 +608,6 @@ async def clear_single_slot(slot_id: int) -> str:
                             user.count_of_session_sinusoid += 1
                         elif "пар" in event.title and user.count_of_sessions_alife_steam is not None:
                             user.count_of_sessions_alife_steam += 1
-
             # Очищаем слот
             slot.isActive = True
             slot.user_id = None

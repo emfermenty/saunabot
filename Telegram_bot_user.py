@@ -351,7 +351,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    admin_username = "@itrustedyou"  # Замените на реальный username администратора
+    admin_username = "@dsgn_perm"  # Замените на реальный username администратора
     
     await update.callback_query.edit_message_text(
         f"📞 Контакты бани \"{BANYA_NAME}\":\n\n"
@@ -448,23 +448,30 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Получаем информацию о пользователе Telegram
     tg_user = update.callback_query.from_user
     first_name = tg_user.first_name or ""
     last_name = tg_user.last_name or ""
     full_name = f"{first_name} {last_name}".strip()
-    username_md = f"[ @{tg_user.username} ](https://t.me/{tg_user.username})" if tg_user.username else "не указан"
+
+    if tg_user.username:
+        username_html = f'<a href="https://t.me/{tg_user.username}">@{tg_user.username}</a>'
+    else:
+        username_html = "не указан"
+
+    phone = user.phone or "не указан"
+    sinus = user.count_of_session_sinusoid or 0
+    steam = user.count_of_sessions_alife_steam or 0
 
     await update.callback_query.edit_message_text(
-        f"👤 Ваш профиль:\n\n"
-        f"Имя: {full_name}\n"
-        f"Username: {username_md}\n"
-        f"Телефон: {user.phone or 'не указан'}\n"
-        f"Количество занятий по сертификату:\n"
-        f"   Синусойда: {user.count_of_session_sinusoid or 0}\n"
-        f"   Живой пар: {user.count_of_sessions_alife_steam or 0}",
+        f"👤 <b>Ваш профиль</b>:\n\n"
+        f"<b>Имя:</b> {full_name}\n"
+        f"<b>Username:</b> {username_html}\n"
+        f"<b>Телефон:</b> {phone}\n"
+        f"<b>Количество занятий по сертификату:</b>\n"
+        f"   Синусоида: {sinus}\n"
+        f"   Живой пар: {steam}",
         reply_markup=get_main_menu(),
-        parse_mode="MarkdownV2",
+        parse_mode="HTML",
         disable_web_page_preview=True
     )
 '''кнопка выбора сертификата'''

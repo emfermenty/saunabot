@@ -162,7 +162,7 @@ def configure_scheduler(application):
         kwargs={"application": application})
     scheduler.add_job(
         create_new_workday_slots,
-        CronTrigger(hour=0, minute=0, timezone="Asia/Yekaterinburg"),
+        CronTrigger(hour=18, minute=11, timezone="Asia/Yekaterinburg"),
         kwargs={"application": application})
 
 def start_scheduler():
