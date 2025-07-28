@@ -12,8 +12,8 @@ from Models import *
 from scheduler.scheduler import configure_scheduler, start_scheduler
 from scheduler.scheduler_handler import button_callback_scheduler
 
-#BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
-BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
+BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
+#BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
 BANYA_NAME = "Живой пар"
 BANYA_ADDRESS = "Комсомольский проспект, 10, г. Краснокамск"
 CONTACT_PHONE = "+7 (999) 123-45-67"
