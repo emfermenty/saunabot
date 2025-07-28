@@ -12,10 +12,10 @@ from Models import *
 from scheduler.scheduler import configure_scheduler, start_scheduler
 from scheduler.scheduler_handler import button_callback_scheduler
 
-BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
-#BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
+#BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
+BOT_TOKEN = "7610457298:AAHIpm3cB7SvSRO_Gp2tcFcVNygz1_tG6us"
 BANYA_NAME = "Живой пар"
-BANYA_ADDRESS = "Комсомольский проспект, 15, г. Краснокамск"
+BANYA_ADDRESS = "Комсомольский проспект, 10, г. Краснокамск"
 CONTACT_PHONE = "+7 (999) 123-45-67"
 WELCOME_IMAGE = "для тг.jpg"
 
@@ -43,6 +43,7 @@ def run_bot():
             CallbackQueryHandler(handle_view_users, pattern=r'^admin_view_users$'),
             CallbackQueryHandler(handle_send_notification, pattern=r'^admin_send_notification$'),
             CallbackQueryHandler(start_add_slot_comment, pattern=r'^admin_add_slot_comment$'),
+            CallbackQueryHandler(admin_button_handler, pattern=r'^admin_send_message_user_\d+$'),
         ],
         states={
             # USER
@@ -92,12 +93,17 @@ def run_bot():
             ADD_SLOT_COMMENT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, save_slot_comment),
                 CallbackQueryHandler(cancel_add_slot, pattern=r'^admin_cancel_add_slot$')
-            ]
+            ],
+            ADMIN_SEND_MESSAGE_TEXT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_send_message),
+                CallbackQueryHandler(admin_button_handler, pattern=r'^admin_cancel_send_message$')
+            ],
         },
         fallbacks=[
             CallbackQueryHandler(show_main_menu, pattern=r'^back_to_menu$'),
             CallbackQueryHandler(show_admin_menu, pattern=r'^admin_back_to_admin_menu$'),
             CallbackQueryHandler(cancel_add_slot, pattern=r'^admin_cancel_add_slot$'),
+            CallbackQueryHandler(admin_button_handler, pattern=r'^admin_cancel_send_message$'),
         ],
         allow_reentry=True
     )

@@ -22,7 +22,7 @@ ADD_SLOT_DATE, ADD_SLOT_TIME, ADD_SLOT_COMMENT, SELECT_EVENT = range(5, 9)
 CLOSE_BOOKING_DATE, CLOSE_BOOKING_TIME, CONFIRM_CLOSE_SLOT = range(9, 12)
 SEARCH_BY_PHONE = 20
 CLOSE_BOOKING_DATE_USER = 21
-
+ADMIN_SEND_MESSAGE_TEXT = 22
 
 def get_admin_keyboard() -> InlineKeyboardMarkup:
     keyboard = [
@@ -54,7 +54,8 @@ async def show_admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_search_by_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    await query.edit_message_text("Введите номер телефона для поиска (без +7, только 10 цифр):")
+    await query.edit_message_text("Введите номер телефона для поиска (без +7, только 10 цифр):",
+                                  reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("↩️ Назад", callback_data='admin_back_to_admin_menu')]]))
     return SEARCH_BY_PHONE
 
 async def process_search_by_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -89,6 +90,9 @@ async def process_search_by_phone(update: Update, context: ContextTypes.DEFAULT_
                                   callback_data=f"admin_make_user_{found_user.telegram_id}")],
             [InlineKeyboardButton("🗑 Снять занятия", callback_data=f"admin_clear_cert_{found_user.telegram_id}")],
             [InlineKeyboardButton("🎫 Выдать сертификат", callback_data=f"admin_give_cert_{found_user.telegram_id}")],
+            [InlineKeyboardButton("📅 Посмотреть расписание",
+                                  callback_data=f"admin_show_schedule_{found_user.telegram_id}")],
+            [InlineKeyboardButton("✉️Отправить сообщение", callback_data=f"admin_send_message_user_{found_user.telegram_id}")],
             [InlineKeyboardButton("↩️ Назад", callback_data="admin_back_to_admin_menu")]
         ])
 
@@ -690,6 +694,8 @@ async def handle_search_phone_result_callback(update: Update, context: ContextTy
             [InlineKeyboardButton("🎫 Выдать сертификат", callback_data=f"admin_give_cert_{found_user.telegram_id}")],
             [InlineKeyboardButton("📅 Посмотреть расписание",
                                   callback_data=f"admin_show_schedule_{found_user.telegram_id}")],
+            [InlineKeyboardButton("✉️Отправить сообщение",
+                                  callback_data=f"admin_send_message_user_{found_user.telegram_id}")],
             [InlineKeyboardButton("↩️ Назад", callback_data="admin_watch_users")]
         ])
 
@@ -850,6 +856,22 @@ async def handle_add_cert(update, context):
     ])
 
     await query.edit_message_text(message, reply_markup=keyboard)
+
+async def handle_admin_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    target_user_id = context.user_data.get("target_user_id")
+    message = update.message.text
+
+    if not target_user_id:
+        await update.message.reply_text("❌ Ошибка: не выбран пользователь.")
+        return ConversationHandler.END
+
+    try:
+        await context.bot.send_message(chat_id=target_user_id, text=message)
+        await update.message.reply_text("✅ Сообщение успешно отправлено.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Не удалось отправить сообщение: {e}")
+
+    return ConversationHandler.END
 async def show_user_info_by_telegram_id(update, context, telegram_id: int):
     query = update.callback_query
     await query.answer()
@@ -977,6 +999,20 @@ async def admin_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await admin_show_schedule_handler(update, context)
     elif data.startswith("admin_confirm_delete_"):
         await confirm_delete_handler(update, context)
+    elif data.startswith("admin_send_message_user_"):
+        telegram_id = int(data.replace("admin_send_message_user_", ""))
+        context.user_data["target_user_id"] = telegram_id
+        context.user_data["last_selected_user_id"] = telegram_id  # сохраняем для возврата
+        await query.edit_message_text(
+            "✍️ Введите сообщение, которое хотите отправить пользователю.",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("↩️ Назад", callback_data="admin_cancel_send_message")]
+            ])
+        )
+        return ADMIN_SEND_MESSAGE_TEXT
+    elif data == "admin_cancel_send_message":
+        await query.edit_message_text("❌ Отправка сообщения отменена.", reply_markup=get_admin_keyboard())
+        return ConversationHandler.END
     else:
         await query.edit_message_text("❗️Неизвестная команда.")
 
