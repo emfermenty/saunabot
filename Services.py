@@ -4,7 +4,7 @@
 from datetime import datetime, timedelta, time, date
 from zoneinfo import ZoneInfo
 
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 from Models import User, Event, TimeSlot, SlotStatus, UserRole, Subscription
 from dbcontext.db import Session
@@ -20,6 +20,8 @@ async def get_or_create_user(telegram_id: int):
 
         if not user:
             user = User(telegram_id=telegram_id)
+            user.count_of_session_sinusoid = 0
+            user.count_of_sessions_alife_steam = 0
             session.add(user)
             await session.commit()
             await session.refresh(user)
@@ -41,6 +43,12 @@ async def get_all_events():
         result = await session.execute(select(Event))
         return result.scalars().all()
 
+async def get_subscriptions_by_event(event_id: int):
+    async with Session() as session:
+        result = await session.execute(
+            select(Subscription).where(Subscription.event_id == event_id)
+        )
+        return result.scalars().all()
 '''получение даты'''
 async def get_available_dates():
     async with Session() as session:
@@ -115,11 +123,11 @@ async def get_available_times_by_date(date_str: str):
                 TimeSlot.user_id == None,
                 TimeSlot.isActive == True,
                 TimeSlot.comment == None,
-                TimeSlot.slot_datetime >= min_datetime
+                TimeSlot.slot_datetime.is_not(None),  # Важно: исключаем NULL!
+                TimeSlot.slot_datetime >= min_datetime  # Теперь здесь не будет ошибки
             ).order_by(TimeSlot.slot_datetime)
         )
         return result.scalars().all()
-
 '''должно запускать только при первом запуске'''
 async def create_hourly_timeslots(days: int = 5):
     async with Session() as session:
@@ -131,7 +139,7 @@ async def create_hourly_timeslots(days: int = 5):
         while created_days < days:
             current_date = today + timedelta(days=day_offset)
             if current_date.weekday() < 5:  # Пн–Пт
-                for hour in range(9, 22):
+                for hour in range(9, 20):
                     slot_dt = datetime.combine(current_date, time(hour=hour))
                     new_slots.append(TimeSlot(
                         slot_datetime=slot_dt,
@@ -214,7 +222,17 @@ async def get_user_bookings(user_id):
             .where(TimeSlot.isActive == True)
         )
         return result.all()
-
+async def get_slot_by_id(slot_id: int):
+    async with Session() as session:
+        result = await session.execute(
+            select(TimeSlot)
+            .options(
+                selectinload(TimeSlot.event),
+                selectinload(TimeSlot.user)
+            )
+            .where(TimeSlot.id == slot_id)
+        )
+        return result.scalar_one_or_none()
 async def clear_booking(booking_id: int):
     async with Session() as session:
         result = await session.execute(select(TimeSlot).where(TimeSlot.id == booking_id))
@@ -226,6 +244,10 @@ async def clear_booking(booking_id: int):
             time_slot.status = None
             time_slot.created_at = None
             time_slot.with_subscribtion = None
+            time_slot.tea = False
+            time_slot.towel = False
+            time_slot.water = False
+            time_slot.sinusoid = False
             await session.commit()
 
 async def take_phone_by_timeslot(slot: TimeSlot):
@@ -240,9 +262,12 @@ async def confirm_timeslot(slot_id: int):
     async with Session() as session:
         result = await session.execute(select(TimeSlot).where(TimeSlot.id == slot_id))
         slot = result.scalar_one_or_none()
-        if slot:
-            slot.status = SlotStatus.CONFIRMED
-            await session.commit()
+        if not slot:
+            print(f"[confirm_timeslot] Слот не найден: id={slot_id}")
+            return
+        slot.status = SlotStatus.CONFIRMED
+        await session.commit()
+        print(f"[confirm_timeslot] Слот {slot_id} подтверждён")
 
 async def canceled_timeslot(slot_id: int):
     async with Session() as session:
@@ -257,9 +282,12 @@ async def take_only_admins():
         result = await session.execute(select(User).where(User.role == UserRole.ADMIN))
         return result.scalars().all()
 
-async def load_sertificate() -> list[Subscription]:
+async def load_sertificate(event_id: int = None):
     async with Session() as session:
-        result = await session.execute(select(Subscription))
+        query = select(Subscription)
+        if event_id:
+            query = query.where(Subscription.event_id == event_id)
+        result = await session.execute(query)
         return result.scalars().all()
 
 async def get_sertificate(sertificate_id: int) -> Subscription | None:
@@ -439,7 +467,7 @@ async def add_new_booking_day():
         while new_date.weekday() >= 5:
             new_date += timedelta(days=1)
         new_slots = []
-        for hour in range(9, 22):
+        for hour in range(9, 20):
             slot_dt = datetime.combine(new_date, time(hour=hour))
             existing_slot = await session.execute(
                 select(TimeSlot).where(TimeSlot.slot_datetime == slot_dt)
@@ -464,7 +492,7 @@ async def add_new_booking_day():
         await session.commit()
         return True, new_date
 
-async def get_unclosed_days():
+'''async def get_unclosed_days():
     now = datetime.now(tz)
     today_date = now.date()
     async with Session() as session:
@@ -485,7 +513,25 @@ async def get_unclosed_days():
         )
         closed_dates = result.scalars().all()
 
-    return closed_dates
+    return closed_dates'''
+
+async def get_unclosed_days():
+    now = datetime.now(tz)
+    today_date = now.date()
+
+    async with Session() as session:
+        result = await session.execute(
+            select(func.date(TimeSlot.slot_datetime).label("slot_date"))
+            .where(
+                func.date(TimeSlot.slot_datetime) >= today_date,
+                TimeSlot.isActive == True
+            )
+            .group_by(func.date(TimeSlot.slot_datetime))
+        )
+
+        unclosed_dates = result.scalars().all()
+
+    return unclosed_dates
 
 async def get_closed_days():
     now = datetime.now(tz)
@@ -621,3 +667,26 @@ async def clear_single_slot(slot_id: int) -> str:
             return result
         finally:
             await session.close()
+
+async def update_timeslot_with_extras(slot_id: int, extras: set[str]):
+    async with Session() as session:
+        result = await session.execute(select(TimeSlot).where(TimeSlot.id == slot_id))
+        slot = result.scalar_one_or_none()
+        if slot:
+            slot.tea = "tea" in extras
+            slot.towel = "towel" in extras
+            slot.water = "water" in extras
+            slot.sinusoid = "sinusoid" in extras
+            await session.commit()
+
+async def get_telegram_user_full_name_and_username(bot, telegram_id: int):
+    try:
+        chat = await bot.get_chat(chat_id=telegram_id)
+        full_name = chat.first_name or ""
+        if chat.last_name:
+            full_name += " " + chat.last_name
+        username = chat.username or "нет"
+        return full_name.strip(), username
+    except Exception as e:
+        print(f"Ошибка при получении данных пользователя {telegram_id}: {e}")
+        return "Неизвестный пользователь", "нет"

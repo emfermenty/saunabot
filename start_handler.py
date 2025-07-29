@@ -1,6 +1,7 @@
 # start_handler.py
 import os
 from telegram import InputFile, InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.error import Forbidden, TelegramError
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, filters,
     CallbackQueryHandler, ConversationHandler, ContextTypes
@@ -18,6 +19,7 @@ BANYA_NAME = "Живой пар"
 BANYA_ADDRESS = "Комсомольский проспект, 10, г. Краснокамск"
 CONTACT_PHONE = "+7 (999) 123-45-67"
 WELCOME_IMAGE = "для тг.jpg"
+ANY_STATE = -1
 
 def run_bot():
     init_db()
@@ -98,6 +100,9 @@ def run_bot():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_send_message),
                 CallbackQueryHandler(admin_button_handler, pattern=r'^admin_cancel_send_message$')
             ],
+            ANY_STATE: [
+                CallbackQueryHandler(button_callback_scheduler, pattern=r'^(confirmfinal_|cancelfinal_).+'),
+            ],
         },
         fallbacks=[
             CallbackQueryHandler(show_main_menu, pattern=r'^back_to_menu$'),
@@ -109,14 +114,15 @@ def run_bot():
     )
 
     application.add_handler(full_conv_handler)
-
+    application.add_handler(
+        CallbackQueryHandler(button_callback_scheduler, pattern=r'^(confirmfinal_|cancelfinal_)\d+$'))
+    application.add_handler(CallbackQueryHandler(toggle_extra_service, pattern=r"^extra_"))
     # Универсальный обработчик callback_query — распределяет по ролям
     application.add_handler(CallbackQueryHandler(universal_button_handler, pattern='.*'))
 
     # Остальные хендлеры
-
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_any_message))
-    application.add_handler(CallbackQueryHandler(button_callback_scheduler, pattern=r'^(confirmfinal_|cancelfinal_).+'))
+    #application.add_handler(CallbackQueryHandler(button_callback_scheduler, pattern=r'^(confirmfinal_|cancelfinal_)\d+$'))
     application.add_handler(CallbackQueryHandler(confirm_delete_booking, pattern=r"^confirm_delete_"))
     application.add_handler(CallbackQueryHandler(delete_booking, pattern=r"^delete_booking_"))
     application.add_handler(CallbackQueryHandler(ask_for_contact, pattern=r'^share_phone$'))
@@ -168,11 +174,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db_user = await get_or_create_user(tg_id)
 
     if db_user and db_user.phone:
-        if db_user.role == UserRole.ADMIN:
-            await context.bot.send_message(chat_id=update.effective_chat.id, text="Добро пожаловать в панель администратора")
-            await show_admin_menu(update, context)
-        else:
-            await show_main_menu(update, context)
+        try:
+            if db_user.role == UserRole.ADMIN:
+                await context.bot.send_message(chat_id=update.effective_chat.id, text="Добро пожаловать в панель администратора")
+                await show_admin_menu(update, context)
+            else:
+                await show_main_menu(update, context)
+        except Forbidden:
+            print(f"❌ Бот заблокирован пользователем {tg_id}, невозможно отправить сообщение.")
+        except TelegramError as e:
+            print(f"⚠️ Ошибка Telegram при отправке приветствия: {e}")
         return
 
     welcome_text = (
@@ -187,8 +198,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [[contact_button]], resize_keyboard=True, one_time_keyboard=True
     )
 
-    if os.path.exists(WELCOME_IMAGE):
-        try:
+    try:
+        if os.path.exists(WELCOME_IMAGE):
             with open(WELCOME_IMAGE, "rb") as photo:
                 if update.message:
                     await update.message.reply_photo(
@@ -202,13 +213,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         caption=welcome_text,
                         reply_markup=reply_markup,
                     )
-        except Exception as e:
-            print(f"Ошибка при отправке изображения: {e}")
+        else:
             await update.effective_chat.send_message(welcome_text, reply_markup=reply_markup)
-    else:
-        await update.effective_chat.send_message(welcome_text, reply_markup=reply_markup)
-
-
+    except Forbidden:
+        print(f"❌ Бот заблокирован пользователем {tg_id}, невозможно отправить сообщение.")
+    except TelegramError as e:
+        print(f"⚠️ Ошибка Telegram при отправке welcome-сообщения: {e}")
 
 async def on_startup(application):
     start_scheduler()

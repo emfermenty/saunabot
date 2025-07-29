@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import select, and_, func
+from sqlalchemy.orm import selectinload
 
 from Models import TimeSlot, SlotStatus, User
 from dbcontext.db import Session
@@ -18,13 +19,14 @@ async def send_reminders_to_users(application):
     print("[scheduler] send_reminders_to_users START")
     now = datetime.now(tz)
     reminder_start = now + timedelta(hours=2) - timedelta(minutes=1)
-    reminder_end = now + timedelta(hours=2) + timedelta(minutes=2)
+    reminder_end = now + timedelta(hours=2) + timedelta(minutes=1)
 
     print(f"[scheduler] now: {now}, checking window: {reminder_start} - {reminder_end}")
 
     async with Session() as session:
         result = await session.execute(
             select(TimeSlot)
+            .options(selectinload(TimeSlot.user))  # <--- загрузка связи заранее
             .where(
                 and_(
                     TimeSlot.slot_datetime.between(reminder_start, reminder_end),
@@ -34,11 +36,11 @@ async def send_reminders_to_users(application):
             )
         )
         slots = result.scalars().all()
-    print(f"[scheduler] found {len(slots)} slot(s)")
 
-    for slot in slots:
-        print(f"[scheduler] notifying user {slot.user_id} about {slot.slot_datetime}")
-        await send_reminder_to_user(application, slot.user.telegram_id, slot)
+        print(f"[scheduler] found {len(slots)} slot(s)")
+        for slot in slots:
+            print(f"[scheduler] notifying user {slot.user_id} about {slot.slot_datetime}")
+            await send_reminder_to_user(application, slot.user.telegram_id, slot)
 
 '''уведомление админу'''
 async def notify_admin_about_unconfirmed_slots(application):
@@ -158,11 +160,11 @@ def configure_scheduler(application):
     )
     scheduler.add_job(
         check_multiple_bookings,
-        IntervalTrigger(minutes=1),
+        IntervalTrigger(minutes=5),
         kwargs={"application": application})
     scheduler.add_job(
         create_new_workday_slots,
-        CronTrigger(hour=18, minute=11, timezone="Asia/Yekaterinburg"),
+        CronTrigger(hour=0, minute=0, timezone="Asia/Yekaterinburg"),
         kwargs={"application": application})
 
 def start_scheduler():

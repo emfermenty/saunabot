@@ -25,7 +25,7 @@ async def notify_admin_if_needed(application: Application, slot: TimeSlot):
     slot_time_str = slot.slot_datetime.strftime("%Y-%m-%d %H:%M")
     user = slot.user_id
     admins = await take_only_admins()
-    text = f"Человек с записью на {slot_time_str} не подтвердил присутствие\n Его номер {take_phone_by_timeslot(slot)}\n Профиль: [@{user}](tg://user?id={user})"
+    text = f"Человек с записью на {slot_time_str} не подтвердил присутствие\n Его номер {await take_phone_by_timeslot(slot)}\n Профиль: [@{user}](tg://user?id={user})"
     for admin in admins:
         try:
             await application.bot.send_message(chat_id=admin.telegram_id, text=text)
@@ -53,11 +53,18 @@ async def button_callback_scheduler(update: Update, context: ContextTypes.DEFAUL
     await query.answer()
     data = query.data
     print("callback received:", data)
-    if data.startswith("confirmfinal_"):
-        slot_id = int(data.split("_")[1])
-        await confirm_timeslot(slot_id)
-        await query.edit_message_text(text="Вы подтвердили запись!", reply_markup=get_main_menu())
-    elif data.startswith("cancelfinal_"):
-        slot_id = int(data.split("_")[1])
-        await canceled_timeslot(slot_id)
-        await query.edit_message_text(text="Вы отменили запись!", reply_markup=get_main_menu())
+
+    try:
+        if data.startswith("confirmfinal_"):
+            slot_id = int(data.split("_")[1])
+            print(f"[confirmfinal_] обработка слота {slot_id}")
+            await confirm_timeslot(slot_id)
+            await query.edit_message_text(text="✅ Вы подтвердили запись!")
+        elif data.startswith("cancelfinal_"):
+            slot_id = int(data.split("_")[1])
+            print(f"[cancelfinal_] обработка слота {slot_id}")
+            await canceled_timeslot(slot_id)
+            await query.edit_message_text(text="❌ Вы отменили запись!", reply_markup=get_main_menu())
+    except Exception as e:
+        print(f"[button_callback_scheduler] Ошибка при обработке callback: {e}")
+        await query.edit_message_text(text="⚠️ Произошла ошибка. Попробуйте позже.")

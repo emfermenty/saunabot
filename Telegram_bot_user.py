@@ -3,6 +3,8 @@ import re
 from telegram import ReplyKeyboardRemove
 from datetime import datetime
 
+from telegram.constants import ParseMode
+
 from Telegram_bot_admin import show_admin_menu
 from dbcontext.db import Session
 
@@ -15,6 +17,12 @@ WEEKDAYS_RU = {
     "Saturday": "Суббота",
     "Sunday": "Воскресенье"
 }
+EXTRA_SERVICES_NAMES = {
+    "tea": "чай",
+    "towel": "полотенце",
+    "water": "вода",
+    "sinusoid": "синусоида",
+}
 
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import (
@@ -24,13 +32,14 @@ from telegram.ext import (
 
 from Services import get_available_dates, get_or_create_user, update_user_phone, get_user_bookings, \
     get_available_times_by_date, confirm_booking_bd, get_event, clear_booking, load_sertificate, get_sertificate, \
-    take_only_admins, bind_sertificate_and_user, confirm_booking_bd_with_sertificate
+    take_only_admins, bind_sertificate_and_user, confirm_booking_bd_with_sertificate, get_all_events, \
+    get_subscriptions_by_event, update_timeslot_with_extras, get_telegram_user_full_name_and_username, get_slot_by_id
 from Models import UserRole
 
 ADMIN_PANEL, ADMIN_VIEW_BOOKINGS, ADMIN_VIEW_USERS, ADMIN_EDIT_BOOKING = range(4, 8)
 BOT_TOKEN = "8046347998:AAFfW0fWu-yFzh0BqzVnpjkiLrRRKOi4PSc"
 BANYA_NAME = "Живой пар"
-BANYA_ADDRESS = "Комсомольский проспект, 15, г. Краснокамск"
+BANYA_ADDRESS = "Комсомольский проспект 10, 1 подъезд, домофон 6"
 CONTACT_PHONE = "+7 (999) 123-45-67"
 WELCOME_IMAGE = "для тг.jpg"
 
@@ -225,19 +234,74 @@ async def handle_time_selection(update: Update, context: ContextTypes.DEFAULT_TY
     slot_id = int(query.data.split("_")[1])
     context.user_data['slot_id'] = slot_id
     context.user_data['booking_time'] = context.user_data['available_slots'][slot_id]
+
+    # ✅ Вот здесь инициализируй множество доп. услуг
+    context.user_data['extra_services'] = set()
+
     procedure_raw = context.user_data.get('procedure')
     event = await get_event(procedure_raw)
     user = await get_or_create_user(query.from_user.id)
+
     await query.edit_message_text(
         text=(
             f"🗓 Дата: {context.user_data['selected_date']}\n"
             f"🕒 Время: {context.user_data['booking_time']}\n"
             f"💆 Процедура: {event.title}\n\n"
-            f"Подтвердите запись:"
+            f"Также вы можете выбрать бесплатные услуги (при записи на синусоиду услуги не предоставляются)\n"
+            f"Подтвердите запись"
         ),
-        reply_markup=get_confirmation_keyboard(user, procedure_raw)
+        reply_markup=get_confirmation_with_services_keyboard(set(), user, procedure_raw)
     )
     return CONFIRM_BOOKING
+def get_confirmation_with_services_keyboard(selected_services: set[str], user=None, procedure_id=None):
+    def label(name, text):
+        return f"✅ {text}" if name in selected_services else f"☐ {text}"
+
+    # Список кнопок подтверждения
+    confirm_buttons = []
+    if user and procedure_id:
+        if procedure_id == 1 and user.count_of_sessions_alife_steam > 0:
+            confirm_buttons.append(InlineKeyboardButton("🎫 Записаться по абонементу", callback_data='confirm_booking_certificate'))
+        elif procedure_id == 2 and user.count_of_session_sinusoid > 0:
+            confirm_buttons.append(InlineKeyboardButton("🎫 Записаться по абонементу", callback_data='confirm_booking_certificate'))
+
+    confirm_buttons.append(InlineKeyboardButton("✅ Подтвердить", callback_data='confirm_booking'))
+    confirm_buttons.append(InlineKeyboardButton("❌ Отменить", callback_data='cancel_booking'))
+
+    # Если выбрана синусоида (предположим ее id = 2), не показываем доп.услуги
+    if procedure_id == 2:
+        return InlineKeyboardMarkup([confirm_buttons])
+
+    # Иначе — показываем доп.услуги + подтверждение
+    buttons = [
+        [InlineKeyboardButton(label("tea", "Чай"), callback_data="extra_tea")],
+        [InlineKeyboardButton(label("towel", "Полотенце"), callback_data="extra_towel")],
+        [InlineKeyboardButton(label("water", "Вода"), callback_data="extra_water")],
+        [InlineKeyboardButton(label("sinusoid", "Синусоида (платно)"), callback_data="extra_sinusoid")]
+    ]
+
+    buttons.append(confirm_buttons)
+    return InlineKeyboardMarkup(buttons)
+
+async def toggle_extra_service(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    service = query.data.split("_")[1]
+    selected = context.user_data.get("extra_services", set())
+
+    if service in selected:
+        selected.remove(service)
+    else:
+        selected.add(service)
+
+    context.user_data["extra_services"] = selected
+
+    user = await get_or_create_user(query.from_user.id)
+    procedure_id = context.user_data.get("procedure")
+
+    await query.edit_message_reply_markup(
+        reply_markup=get_confirmation_with_services_keyboard(selected, user, procedure_id))
 
 
 async def show_bookings(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -295,7 +359,7 @@ async def confirm_delete_booking(update: Update, context: ContextTypes.DEFAULT_T
 async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
-    selected_date = context.user_data['selected_date']  # Это объект date
+    selected_date = context.user_data['selected_date']
     time = context.user_data['booking_time']
     procedure_raw = context.user_data.get('procedure')
     slot_id = context.user_data['slot_id']
@@ -311,9 +375,43 @@ async def confirm_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await confirm_booking_bd(procedure_raw, user_id, slot_id)
 
+        # Обновляем доп. услуги
+        extra_services = context.user_data.get("extra_services", set())
+        await update_timeslot_with_extras(slot_id, extra_services)
+
+        # Преобразуем к читаемым русским названиям
+        extra_services_rus = [EXTRA_SERVICES_NAMES.get(s, s) for s in extra_services]
+        extra_services_text = ", ".join(extra_services_rus) if extra_services_rus else "нет"
+
+        # Отправляем сообщение админам
+        admins = await take_only_admins()
+
+        # Получаем имя, фамилию и юзернейм через context.bot
+        tg_user = await context.bot.get_chat(user_id)
+        first_name = tg_user.first_name or ""
+        last_name = tg_user.last_name or ""
+        username = f"@{tg_user.username}" if tg_user.username else "нет"
+
+        admin_message = (
+            f"Новая запись!\n"
+            f"Пользователь: {first_name} {last_name} ({username})\n"
+            f"Номер телефона: {user.phone}\n"
+            f"Дата: {date_formatted}\n"
+            f"Время: {time}\n"
+            f"Процедура: {event.title}\n"
+            f"Дополнительные услуги: {extra_services_text}\n"
+            f"{'(по абонементу)' if by_certificate else ''}"
+        )
+
+        for admin in admins:
+            try:
+                await context.bot.send_message(chat_id=admin.telegram_id, text=admin_message)
+            except Exception as e:
+                print(f"Ошибка при отправке сообщения админу {admin.telegram_id}: {e}")
+
         await query.edit_message_text(
-            f"✅ Вы успешно записаны!\n\nДата: {date_formatted}\nВремя: {time}\nПроцедура: {event.title}" +
-            (f"\n(по сертификату, оставшееся количество записей по сертификату вы можете посмотреть в профиле)" if by_certificate else ""),
+            f"✅ Вы успешно записаны!\n\nДата: {date_formatted}\nВремя: {time}\nПроцедура: {event.title}"
+            + (f"\n(по абонементу, оставшееся количество записей по абонементу вы можете посмотреть в профиле)" if by_certificate else ""),
             reply_markup=get_main_menu()
         )
     except Exception as e:
@@ -330,11 +428,11 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await ask_for_contact(update, context)
     
     keyboard = [
-        [InlineKeyboardButton("📅 Выбрать дату для записи", callback_data='select_date')],
-        [InlineKeyboardButton("📋 Мои записи", callback_data='my_bookings')],
-        [InlineKeyboardButton("👤 Профиль", callback_data='profile')],
-        [InlineKeyboardButton("Приобрести сертификат", callback_data='sertificate')],
-        [InlineKeyboardButton("📞 Связаться с нами", callback_data='contact_us')]
+        [InlineKeyboardButton("📅 ЗАПИСАТЬСЯ", callback_data='select_date')],
+        [InlineKeyboardButton("📋 МОИ ЗАПИСИ", callback_data='my_bookings')],
+        [InlineKeyboardButton("👤 ПРОФИЛЬ", callback_data='profile')],
+        [InlineKeyboardButton("АБОНЕМЕНТ", callback_data='sertificate')],
+        [InlineKeyboardButton("📞 СВЯЗАТЬСЯ С НАМИ", callback_data='contact_us')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -355,9 +453,9 @@ async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.callback_query.edit_message_text(
         f"📞 Контакты бани \"{BANYA_NAME}\":\n\n"
-        f"Телефон: {CONTACT_PHONE}\n"
+        f"Телефон: 89197137750 и 89124987743\n"
         f"Адрес: {BANYA_ADDRESS}\n\n"
-        f"Мы работаем ежедневно с 10:00 до 22:00\n\n"
+        f"Работаем с 9:00 до 20:00\n\n"
         f"По всем вопросам обращайтесь к администратору: {admin_username}",
         reply_markup=get_main_menu()
     )
@@ -415,12 +513,51 @@ async def handle_selected_date(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return SELECT_TIME
+
+
 async def delete_booking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     booking_id = int(query.data.replace("delete_booking_", ""))
+
+    slot = await get_slot_by_id(booking_id)
+
     await clear_booking(booking_id)
     await query.answer("Запись отменена ❌")
     await show_bookings(update, context)
+
+    if slot:
+        time_str = slot.slot_datetime.strftime("%d.%m.%Y %H:%M")
+        event_title = slot.event.title if slot.event else "не указана"
+        user_info = "неизвестно"
+
+        if slot.user:
+            try:
+                chat = await context.bot.get_chat(slot.user.telegram_id)
+                full_name = f"{chat.first_name or ''} {chat.last_name or ''}".strip()
+                username = f"@{chat.username}" if chat.username else "не указан"
+                phone = slot.user.phone or "не указан"
+                user_info = f"{full_name} ({username}, 📞 {phone})"
+            except Exception:
+                pass
+
+        message = (
+            f"❌ <b>Запись удалена</b>\n\n"
+            f"🕒 Время: <b>{time_str}</b>\n"
+            f"🎯 Процедура: <b>{event_title}</b>\n"
+            f"👤 Пользователь: <b>{user_info}</b>"
+        )
+
+        # Получаем всех админов и рассылаем уведомление
+        admins = await take_only_admins()
+        for admin in admins:
+            try:
+                await context.bot.send_message(
+                    chat_id=admin.telegram_id,
+                    text=message,
+                    parse_mode=ParseMode.HTML
+                )
+            except Exception as e:
+                print(f"Ошибка при отправке админу {admin.telegram_id}: {e}")
 
 async def handle_date_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -467,22 +604,52 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"<b>Имя:</b> {full_name}\n"
         f"<b>Username:</b> {username_html}\n"
         f"<b>Телефон:</b> {phone}\n"
-        f"<b>Количество занятий по сертификату:</b>\n"
+        f"<b>Количество занятий по абонементу:</b>\n"
         f"   Синусоида: {sinus}\n"
         f"   Живой пар: {steam}",
         reply_markup=get_main_menu(),
         parse_mode="HTML",
         disable_web_page_preview=True
     )
-'''кнопка выбора сертификата'''
-async def obtainment_sertificate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+'''выбор события для сертификата'''
+async def select_event_for_certificate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    sertificates = await load_sertificate()
+    events = await get_all_events()
+
+    if not events:
+        await query.edit_message_text("Нет подходящих событий для абонемента.")
+        return
+
+    keyboard = [
+        [InlineKeyboardButton(text=event.title, callback_data=f"cert_event_{event.id}")]
+        for event in events
+    ]
+    keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data='back_to_menu')])
+
+    await query.edit_message_text(
+        "Выберите событие по абонементу:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def handle_event_choice_for_certificate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    if not data.startswith("cert_event_"):
+        await query.edit_message_text("Ошибка выбора события.")
+        return
+
+    event_id = int(data.split("_")[-1])
+    context.user_data['selected_event_id'] = event_id  # Сохраняем выбранное событие
+
+    # Загружаем сертификаты для выбранного события
+    sertificates = await get_subscriptions_by_event(event_id)
 
     if not sertificates:
-        await query.edit_message_text("Сертификатов пока нет.")
+        await query.edit_message_text("Для выбранного события абонементу отсутствуют.")
         return
 
     keyboard = [
@@ -490,8 +657,9 @@ async def obtainment_sertificate(update: Update, context: ContextTypes.DEFAULT_T
         for sub in sertificates
     ]
     keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data='back_to_menu')])
+
     await query.edit_message_text(
-        text="Для приобритения сертификата обратитесь к администратору\n Нажмите на кнопку, после чего попросите администратора активировать сертификат после оплаты",
+        "Выберите абонементу:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 '''отправка сообщения администратору'''
@@ -504,7 +672,7 @@ async def handle_selected_sertificate(update: Update, context: ContextTypes.DEFA
     if sert:
         text = f"Вы выбрали {sert.title}\nНажмите на кнопку, после чего администратору придет сообщение с подтверждением"
     else:
-        text = "Сертификат не найден."
+        text = "Абонемент не найден."
 
     keyboard = [
         [InlineKeyboardButton("✅ Подтвердить", callback_data=f'send_to_admin_sertificate_{sub_id}')],
@@ -528,7 +696,7 @@ async def send_sertificate_request_to_admin(update: Update, context: ContextType
     await notify_admins_about_certificate(update, context, user_id, sub_id)
 
     await query.edit_message_text(
-        "✅ Ваша заявка на сертификат отправлена администратору.\nОжидайте подтверждения.",
+        "✅ Ваша заявка на абонементу отправлена администратору.\nОжидайте подтверждения.",
         reply_markup=get_main_menu()
     )
 
@@ -542,7 +710,7 @@ async def notify_admins_about_certificate(update: Update, context: ContextTypes.
     context.bot_data[key] = []
     text = (f"[Пользователь](tg://user?id={user.telegram_id})\n"
             f" с номером {user.phone}\n "
-            f"запрашивает сертификат: {sert.title}\n"
+            f"запрашивает абонемент: {sert.title}\n"
             f"Подтвердите выдачу.")
 
     keyboard = InlineKeyboardMarkup([
@@ -568,7 +736,7 @@ async def accepting_setificate(update: Update, context: ContextTypes, user_id: i
     count = sert.countofsessions_alife_steam or sert.countofsessions_sinusoid or 0
     await context.bot.send_message(
         chat_id=user_id,
-        text=f"Вам успешно одобрен сертификат!\n\nКоличество занятий по сертификату: {count}"
+        text=f"Вам успешно одобрен абонемент!\n\nКоличество занятий по абонемент: {count}"
     )
     key = f"sert_request_{sub_id}_{user_id}"
     messages_to_edit = context.bot_data.get(key, [])
@@ -577,7 +745,7 @@ async def accepting_setificate(update: Update, context: ContextTypes, user_id: i
             await context.bot.edit_message_text(
                 chat_id=chat_id,
                 message_id=message_id,
-                text="✅ Сертификат подтвержден"
+                text="✅ Абонемент подтвержден"
             )
         except Exception as e:
             print(f"Не удалось изменить сообщение у {chat_id}: {e}")
@@ -592,19 +760,19 @@ def get_confirmation_keyboard(user=None, procedure_id=None):
 
     if user and procedure_id:
         if procedure_id == 1 and user.count_of_sessions_alife_steam > 0:
-            buttons.insert(0, [InlineKeyboardButton("🎫 Записаться по сертификату", callback_data='confirm_booking_certificate')])
+            buttons.insert(0, [InlineKeyboardButton("🎫 Записаться по абонементу", callback_data='confirm_booking_certificate')])
         elif procedure_id == 2 and user.count_of_session_sinusoid > 0:
-            buttons.insert(0, [InlineKeyboardButton("🎫 Записаться по сертификату", callback_data='confirm_booking_certificate')])
+            buttons.insert(0, [InlineKeyboardButton("🎫 Записаться по абонементу", callback_data='confirm_booking_certificate')])
 
     return InlineKeyboardMarkup(buttons)
 
 def get_main_menu():
     keyboard = [
-        [InlineKeyboardButton("📅 Выбрать дату для записи", callback_data='select_date')],
-        [InlineKeyboardButton("📋 Мои записи", callback_data='my_bookings')],
-        [InlineKeyboardButton("👤 Профиль", callback_data='profile')],
-        [InlineKeyboardButton("Приобрести сертификат", callback_data='sertificate')],
-        [InlineKeyboardButton("📞 Связаться с нами", callback_data='contact_us')]
+        [InlineKeyboardButton("📅 ЗАПИСАТЬСЯ", callback_data='select_date')],
+        [InlineKeyboardButton("📋 МОИ ЗАПИСИ", callback_data='my_bookings')],
+        [InlineKeyboardButton("👤 ПРОФИЛЬ", callback_data='profile')],
+        [InlineKeyboardButton("Абонемент", callback_data='sertificate')],
+        [InlineKeyboardButton("📞 СВЯЗАТЬСЯ С НАМИ", callback_data='contact_us')]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -625,7 +793,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'back_to_menu':
         await show_main_menu(update, context)
     elif query.data == "sertificate":
-        await obtainment_sertificate(update, context)
+        await select_event_for_certificate(update, context)
+    elif query.data.startswith("cert_event_"):
+        await handle_event_choice_for_certificate(update, context)
     elif query.data.startswith('procedure_'):
         await handle_procedure_selection(update, context)
     elif query.data.startswith('select_date_'):
@@ -658,7 +828,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if match:
             sub_id = int(match.group(1))
             user_id = int(match.group(2))
-            await context.bot.send_message(chat_id=user_id, text="Ваш запрос на сертификат был отклонён.")
+            await context.bot.send_message(chat_id=user_id, text="Ваш запрос на абонемент был отклонён.")
             await query.message.delete()
     #для сертификата
     elif query.data == 'confirm_booking_certificate':

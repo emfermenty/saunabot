@@ -382,13 +382,16 @@ async def show_timetable_for_date(update: Update, context: ContextTypes.DEFAULT_
     selected_date = datetime.strptime(date_str, "%Y-%m-%d").date()
 
     slots = await get_slots_by_date(selected_date)
-
-    # Фильтруем слоты, у которых есть статус
     slots = [slot for slot in slots if slot.status is not None]
+
     keyboard = [[InlineKeyboardButton("↩️ Назад", callback_data='admin_view_timetable')]]
     reply_markup = InlineKeyboardMarkup(keyboard)
+
     if not slots:
-        await query.edit_message_text(text=f"На {selected_date.strftime('%Y-%m-%d')} записей нет.", reply_markup=get_admin_keyboard())
+        await query.edit_message_text(
+            text=f"На {selected_date.strftime('%Y-%m-%d')} записей нет.",
+            reply_markup=get_admin_keyboard()
+        )
         return
 
     lines = []
@@ -396,11 +399,12 @@ async def show_timetable_for_date(update: Update, context: ContextTypes.DEFAULT_
         event_title = slot.event.title if slot.event else "Нет мероприятия"
         time_str = slot.slot_datetime.strftime("%H:%M")
 
+        # Если есть комментарий — показываем только его
         if slot.comment:
-            lines.append(f"🕒 {time_str} | 💬 Комментарий: {slot.comment} | 🎯 {event_title} ")
-            continue  # пропускаем остальную информацию
+            lines.append(f"🕒 {time_str} | 💬 Комментарий: {slot.comment} | 🎯 {event_title}")
+            continue
 
-        # Если комментария нет — продолжаем обычную логику
+        # Пользователь
         if slot.user:
             try:
                 chat = await context.bot.get_chat(slot.user.telegram_id)
@@ -414,7 +418,7 @@ async def show_timetable_for_date(update: Update, context: ContextTypes.DEFAULT_
         else:
             user_info = "Нет данных о пользователе"
 
-
+        # Статус
         if slot.status == SlotStatus.CONFIRMED:
             status_emoji = "🟢"
         elif slot.status == SlotStatus.PENDING:
@@ -425,8 +429,21 @@ async def show_timetable_for_date(update: Update, context: ContextTypes.DEFAULT_
             status_emoji = "❓"
         status_text = slot.status.value
 
-        lines.append(f"🕒 {time_str} | 👤 {user_info} | 🎯 {event_title} | {status_emoji} {status_text}")
+        # Дополнительные услуги
+        extras = []
+        if slot.tea:
+            extras.append("чай")
+        if slot.towel:
+            extras.append("полотенце")
+        if slot.water:
+            extras.append("вода")
+        if slot.sinusoid:
+            extras.append("синусоида")
+        extras_text = f" | ➕ Услуги: {', '.join(extras)}" if extras else ""
 
+        lines.append(
+            f"🕒 {time_str} | 👤 {user_info} | 🎯 {event_title} | {status_emoji} {status_text}{extras_text}"
+        )
     text = "\n\n".join(lines)
     if len(text) > 4000:
         text = "\n\n".join(lines[:30]) + "\n\n⚠️ Слишком много данных. Показаны только первые 30."
@@ -435,6 +452,7 @@ async def show_timetable_for_date(update: Update, context: ContextTypes.DEFAULT_
         text=f"📋 Расписание на {selected_date.strftime('%Y-%m-%d')}:\n\n{text}",
         reply_markup=reply_markup
     )
+
 
 '''запись по телефону'''
 async def start_add_slot_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -644,13 +662,23 @@ async def show_all_users_handler(update: Update, context: ContextTypes.DEFAULT_T
     keyboard = []
     for user in users:
         if user.phone:
+            # Пытаемся получить имя и фамилию через Telegram API
+            try:
+                chat = await context.bot.get_chat(user.telegram_id)
+                full_name = f"{chat.first_name or ''} {chat.last_name or ''}".strip()
+            except Exception as e:
+                full_name = "❓ Неизвестно"
+
             last_10_digits = ''.join(filter(str.isdigit, user.phone))[-10:]
+            label = f"{full_name} — {user.phone}"
+
             keyboard.append([
                 InlineKeyboardButton(
-                    text=user.phone,
+                    text=label,
                     callback_data=f"admin_search_phone_result_{last_10_digits}"
                 )
             ])
+
     keyboard.append([
         InlineKeyboardButton("↩️ Назад", callback_data='admin_back_to_admin_menu')
     ])

@@ -34,8 +34,8 @@ class Event(Base):
     title = Column(String, nullable=False)
     price = Column(Integer, nullable=False)
 
-    # Связи
     time_slots = relationship("TimeSlot", back_populates="event")
+    subscriptions = relationship("Subscription", back_populates="event")
 
 
 class TimeSlot(Base):
@@ -50,6 +50,10 @@ class TimeSlot(Base):
     status = Column(Enum(SlotStatus, name="slot_status"), nullable=True)
     created_at = Column(DateTime, nullable=True)
     with_subscribtion = Column(Boolean, nullable=True)
+    tea = Column(Boolean, default=False)
+    towel = Column(Boolean, default=False)
+    water = Column(Boolean, default=False)
+    sinusoid = Column(Boolean, default=False)
     # Связи
     event = relationship("Event", back_populates="time_slots")
     user = relationship("User", back_populates="time_slots")
@@ -61,6 +65,8 @@ class Subscription(Base):
     title = Column(String, nullable=True)
     countofsessions_alife_steam = Column(Integer, nullable=True)
     countofsessions_sinusoid = Column(Integer, nullable=True)
+    event_id = Column(Integer, ForeignKey('events.id'), nullable=False)
+    event = relationship("Event", back_populates="subscriptions")
 
 engine = create_engine('sqlite:///bot.db')
 Session = sessionmaker(bind=engine)
