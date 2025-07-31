@@ -193,7 +193,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     welcome_text = (
         f"Здравствуйте, {user.first_name}!\n\n"
-        f"Это бот для онлайн-записи в баню \"{BANYA_NAME}\" "
+        f"Это бот для онлайн-записи в \"{BANYA_NAME}\" "
         f"по адресу: {BANYA_ADDRESS}.\n\n"
         "Для начала записи, пожалуйста, поделитесь своим номером телефона:"
     )

@@ -452,7 +452,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    admin_username = "@dsgn_perm"  # Замените на реальный username администратора
+    admin_username = "@par_krk"  # Замените на реальный username администратора
     
     await update.callback_query.edit_message_text(
         f"📞 Контакты \"{BANYA_NAME}\":\n\n"
@@ -875,13 +875,10 @@ async def handle_review_start(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def procedure_sinus(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    username_link = (
-        f'<a href="tg://user?id={5814418046}">Профиль</a>'
-    )
     text = (f'Данная процедура является дополнительной процедурой к процедуре Живой пар\n\n'
             'Если вы хотите записаться отдельно на данную процедуру, обратитесь к администратору:\n'
             'Администратор Ольга: @olga_krach или по номеру 89124987743\n'
-            f'Администратор Ирина: {username_link} или по номеру 89197137750')
+            f'Администратор Ирина: @par_krk или по номеру 89197137750')
     await query.edit_message_text(text, parse_mode='HTML', reply_markup=get_main_menu())
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
