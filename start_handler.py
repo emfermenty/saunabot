@@ -37,6 +37,7 @@ def run_bot():
             CallbackQueryHandler(handle_selected_date, pattern=r'^select_date_\d{4}-\d{2}-\d{2}$'),
             CallbackQueryHandler(handle_time_selection, pattern=r'^time_\d+$'),
             CallbackQueryHandler(confirm_booking, pattern='^confirm_booking$'),
+            CallbackQueryHandler(handle_review_start, pattern=r'^review$'),
 
             # ADMIN (с префиксом admin_)
             CallbackQueryHandler(handle_search_by_phone, pattern=r'^admin_search_by_phone$'),
@@ -62,6 +63,11 @@ def run_bot():
             SELECT_DATE_TO_CLOSE: [
                 CallbackQueryHandler(confirm_close_date, pattern=r'^admin_select_date_\d{4}-\d{2}-\d{2}$'),
                 CallbackQueryHandler(show_admin_menu, pattern=r'^admin_back_to_admin_menu$')
+            ],
+            REVIEW_COLLECTING: [
+                MessageHandler(filters.TEXT | filters.PHOTO, handle_review_collect),
+                CallbackQueryHandler(finish_review, pattern='^finish_review$'),
+                CallbackQueryHandler(show_main_menu, pattern='^back_to_menu$'),
             ],
             CONFIRM_CLOSE_DATE: [
                 CallbackQueryHandler(execute_close_date, pattern=r'^admin_confirm_close_\d{4}-\d{2}-\d{2}$'),

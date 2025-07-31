@@ -45,7 +45,7 @@ WELCOME_IMAGE = "для тг.jpg"
 
 # Conversation states
 SELECT_PROCEDURE, SELECT_DATE, SELECT_TIME, CONFIRM_BOOKING = range(4)
-
+REVIEW_COLLECTING = 1001
 async def ask_for_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
 
@@ -99,7 +99,7 @@ async def handle_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def get_procedure_keyboard():
     keyboard = [
         [InlineKeyboardButton("🔥 Живой пар", callback_data='procedure_1')],
-        [InlineKeyboardButton("💧 Синусоида", callback_data='procedure_2')],
+        [InlineKeyboardButton("💧Синусоида", callback_data='procedure_sinus')],
         [InlineKeyboardButton("⬅️ Назад", callback_data='back_to_menu')]  # Добавлена кнопка назад
     ]
     return InlineKeyboardMarkup(keyboard)
@@ -246,8 +246,9 @@ async def handle_time_selection(update: Update, context: ContextTypes.DEFAULT_TY
         text=(
             f"🗓 Дата: {context.user_data['selected_date']}\n"
             f"🕒 Время: {context.user_data['booking_time']}\n"
-            f"💆 Процедура: {event.title}\n\n"
-            f"Также вы можете выбрать бесплатные услуги (при записи на синусоиду услуги не предоставляются)\n"
+            f"💆 Процедура: {event.title}\n"
+            f"👼Детям до 14 лет бесплатно\n\n"
+            f"Также вы можете выбрать бесплатные услуги\n"
             f"Подтвердите запись"
         ),
         reply_markup=get_confirmation_with_services_keyboard(set(), user, procedure_raw)
@@ -277,7 +278,7 @@ def get_confirmation_with_services_keyboard(selected_services: set[str], user=No
         [InlineKeyboardButton(label("tea", "Чай"), callback_data="extra_tea")],
         [InlineKeyboardButton(label("towel", "Полотенце"), callback_data="extra_towel")],
         [InlineKeyboardButton(label("water", "Вода"), callback_data="extra_water")],
-        [InlineKeyboardButton(label("sinusoid", "Синусоида (платно)"), callback_data="extra_sinusoid")]
+        [InlineKeyboardButton(label("sinusoid", "Синусоида (платная процедура)"), callback_data="extra_sinusoid")]
     ]
 
     buttons.append(confirm_buttons)
@@ -431,7 +432,9 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📅 ЗАПИСАТЬСЯ", callback_data='select_date')],
         [InlineKeyboardButton("📋 МОИ ЗАПИСИ", callback_data='my_bookings')],
         [InlineKeyboardButton("👤 ПРОФИЛЬ", callback_data='profile')],
-        [InlineKeyboardButton("АБОНЕМЕНТ", callback_data='sertificate')],
+        [InlineKeyboardButton("🎫 АБОНЕМЕНТ", callback_data='sertificate')],
+        [InlineKeyboardButton("💰 НАШИ ЦЕНЫ", callback_data='price')],
+        [InlineKeyboardButton("🔟 ОСТАВИТЬ ОТЗЫВ", callback_data="review")],
         [InlineKeyboardButton("📞 СВЯЗАТЬСЯ С НАМИ", callback_data='contact_us')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -452,7 +455,7 @@ async def contact_us(update: Update, context: ContextTypes.DEFAULT_TYPE):
     admin_username = "@dsgn_perm"  # Замените на реальный username администратора
     
     await update.callback_query.edit_message_text(
-        f"📞 Контакты бани \"{BANYA_NAME}\":\n\n"
+        f"📞 Контакты \"{BANYA_NAME}\":\n\n"
         f"Телефон: 89197137750 и 89124987743\n"
         f"Адрес: {BANYA_ADDRESS}\n\n"
         f"Работаем с 9:00 до 20:00\n\n"
@@ -618,20 +621,24 @@ async def select_event_for_certificate(update: Update, context: ContextTypes.DEF
 
     events = await get_all_events()
 
-    if not events:
+    # Исключаем события с названием "Синусоида"
+    filtered_events = [event for event in events if event.title.lower() != "синусоида"]
+
+    if not filtered_events:
         await query.edit_message_text("Нет подходящих событий для абонемента.")
         return
 
     keyboard = [
         [InlineKeyboardButton(text=event.title, callback_data=f"cert_event_{event.id}")]
-        for event in events
+        for event in filtered_events
     ]
     keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data='back_to_menu')])
 
     await query.edit_message_text(
-        "Выберите событие по абонементу:",
+        "Выберите процедуру по абонементу:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
+
 
 async def handle_event_choice_for_certificate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -659,7 +666,7 @@ async def handle_event_choice_for_certificate(update: Update, context: ContextTy
     keyboard.append([InlineKeyboardButton("⬅️ Назад", callback_data='back_to_menu')])
 
     await query.edit_message_text(
-        "Выберите абонементу:",
+        "Выберите абонемент:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 '''отправка сообщения администратору'''
@@ -752,6 +759,75 @@ async def accepting_setificate(update: Update, context: ContextTypes, user_id: i
 
     context.bot_data.pop(key, None)
 
+async def handle_review_collect(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text:
+        # Добавляем текст к уже введенному
+        context.user_data['review_text'] += update.message.text + "\n"
+
+    if update.message.photo:
+        photo = update.message.photo[-1]  # самое большое качество
+        file_id = photo.file_id
+        context.user_data['review_photos'].append(file_id)
+
+    return REVIEW_COLLECTING
+
+async def finish_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+    user_info = f"👤 Отзыв от:\n"
+    user_info += f"• Имя: {user.first_name or ''} {user.last_name or ''}\n"
+    if user.username:
+        user_info += f"• Ник в телеграме: @{user.username}\n"
+
+    text = context.user_data.get('review_text', '').strip()
+    photos = context.user_data.get('review_photos', [])
+
+    # Благодарим пользователя
+    if text:
+        await query.message.reply_text(f"✅ Ваш отзыв успешно отправлен, большое спасибо!", reply_markup=get_main_menu())
+    if photos:
+        for photo_id in photos:
+            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=photo_id)
+
+    await query.edit_message_text("Ваш отзыв отправлен. Спасибо!", reply_markup=get_main_menu())
+
+    admins = await take_only_admins()
+
+    for admin in admins:
+        try:
+            if text:
+                await context.bot.send_message(
+                    chat_id=admin.telegram_id,
+                    text=f"📝 Новый отзыв:\n\n{text}\n\n{user_info}",
+                    parse_mode='HTML'
+                )
+            if photos:
+                for photo_id in photos:
+                    await context.bot.send_photo(chat_id=admin.telegram_id, photo=photo_id)
+        except Exception as e:
+            print(f"Ошибка при отправке админу {admin.telegram_id}: {e}")
+
+    return ConversationHandler.END
+async def price_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (
+        "💰 <b>Цены на наши услуги:</b>\n\n"
+        "• Разовое посещение <b>Живой пар</b> — 850 ₽\n"
+        "• Разовое посещение <b>Синусоида</b> — 600 ₽\n"
+        "• АБОНЕМЕНТ на 5 сеансов <b>Живого пара</b> — 4000 ₽\n"
+        "• АБОНЕМЕНТ на 10 сеансов <b>Живого пара</b> — 7500 ₽\n"
+        "• <b>Пенсионный</b> абонемент на 10 сеансов — 7000 ₽\n"
+        "• <b>Семейный</b> (2 взрослых) абонемент на 5 сеансов — 6000 ₽\n"
+        "• <b>Семейный</b> (2 взрослых) абонемент на 10 сеансов — 12000 ₽\n"
+        "• Дети до 14 лет в сопровождении взрослых <b>бесплатно</b>\n\n"
+        "👉 Для приобретения абонемента перейдите во вкладку «🎫 Абонемент»"
+    )
+
+    query = update.callback_query
+    await query.edit_message_text(text=text, reply_markup=get_main_menu(), parse_mode="HTML")
+
+
 def get_confirmation_keyboard(user=None, procedure_id=None):
     buttons = [
         [InlineKeyboardButton("✅ Подтвердить", callback_data='confirm_booking')],
@@ -771,10 +847,42 @@ def get_main_menu():
         [InlineKeyboardButton("📅 ЗАПИСАТЬСЯ", callback_data='select_date')],
         [InlineKeyboardButton("📋 МОИ ЗАПИСИ", callback_data='my_bookings')],
         [InlineKeyboardButton("👤 ПРОФИЛЬ", callback_data='profile')],
-        [InlineKeyboardButton("Абонемент", callback_data='sertificate')],
+        [InlineKeyboardButton("🎫 АБОНЕМЕНТ", callback_data='sertificate')],
+        [InlineKeyboardButton("💰 НАШИ ЦЕНЫ", callback_data='price')],
+        [InlineKeyboardButton("🔟 ОСТАВИТЬ ОТЗЫВ", callback_data="review")],
         [InlineKeyboardButton("📞 СВЯЗАТЬСЯ С НАМИ", callback_data='contact_us')]
     ]
     return InlineKeyboardMarkup(keyboard)
+def get_review_collect_keyboard():
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Готово", callback_data='finish_review')],
+        [InlineKeyboardButton("🔙 Назад", callback_data='back_to_menu')]
+    ])
+
+async def handle_review_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    context.user_data['review_text'] = ""
+    context.user_data['review_photos'] = []
+
+    await query.edit_message_text(
+        "✍ Напишите отзыв и/или прикрепите фото.\n\nКогда закончите, отправьте сообщение и нажмите «✅ Готово».",
+        reply_markup=get_review_collect_keyboard()
+    )
+    return REVIEW_COLLECTING
+
+async def procedure_sinus(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    username_link = (
+        f'<a href="tg://user?id={5814418046}">Профиль</a>'
+    )
+    text = (f'Данная процедура является дополнительной процедурой к процедуре Живой пар\n\n'
+            'Если вы хотите записаться отдельно на данную процедуру, обратитесь к администратору:\n'
+            'Администратор Ольга: @olga_krach или по номеру 89124987743\n'
+            f'Администратор Ирина: {username_link} или по номеру 89197137750')
+    await query.edit_message_text(text, parse_mode='HTML', reply_markup=get_main_menu())
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -796,8 +904,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await select_event_for_certificate(update, context)
     elif query.data.startswith("cert_event_"):
         await handle_event_choice_for_certificate(update, context)
-    elif query.data.startswith('procedure_'):
-        await handle_procedure_selection(update, context)
+
+    if query.data.startswith('procedure_'):
+        if query.data == 'procedure_sinus':
+            await procedure_sinus(update, context)
+        else:
+            proc_id = int(query.data.split('_')[1])
+            await handle_procedure_selection(proc_id, update, context)
     elif query.data.startswith('select_date_'):
         await handle_selected_date(update, context)
     elif query.data.startswith('time_'):
@@ -834,4 +947,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'confirm_booking_certificate':
         context.user_data['by_certificate'] = True
         await confirm_booking(update, context)
+    elif query.data == 'review':
+        context.user_data['review_text'] = ""
+        context.user_data['review_photos'] = []
+        await handle_review_start(update, context)
+    elif query.data == 'price':
+        await price_list(update, context)
+
 

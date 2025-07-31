@@ -128,7 +128,7 @@ async def create_new_workday_slots(application):
             next_day += timedelta(days=1)
 
         new_slots = []
-        for hour in range(9, 22):
+        for hour in range(9, 20):
             slot_dt = datetime.combine(next_day, time(hour=hour)).replace(tzinfo=tz)
             slot = TimeSlot(
                 slot_datetime=slot_dt,
