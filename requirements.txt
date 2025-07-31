@@ -1,0 +1,4 @@
+sqlalchemy
+aiosqlite
+python-telegram-bot
+apscheduler
