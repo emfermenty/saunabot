@@ -690,3 +690,33 @@ async def get_telegram_user_full_name_and_username(bot, telegram_id: int):
     except Exception as e:
         print(f"Ошибка при получении данных пользователя {telegram_id}: {e}")
         return "Неизвестный пользователь", "нет"
+
+async def get_closed_days_to_open():
+    now = datetime.now(tz).replace(microsecond=0)
+    async with Session() as session:
+        result = await session.execute(
+            select(func.date(TimeSlot.slot_datetime))
+            .where(
+                TimeSlot.isActive == False,
+                TimeSlot.slot_datetime >= now
+            )
+            .group_by(func.date(TimeSlot.slot_datetime))
+        )
+        return [
+            d if isinstance(d, str) else d.strftime("%Y-%m-%d")
+            for (d,) in result.all()
+        ]
+
+async def get_slots_by_date_and_status(date: date, is_active: bool):
+    start_dt = datetime.combine(date, time.min).replace(tzinfo=tz)
+    end_dt = datetime.combine(date, time.max).replace(tzinfo=tz)
+
+    async with Session() as session:
+        result = await session.execute(
+            select(TimeSlot).where(
+                TimeSlot.slot_datetime >= start_dt,
+                TimeSlot.slot_datetime <= end_dt,
+                TimeSlot.isActive == is_active
+            ).order_by(TimeSlot.slot_datetime)
+        )
+        return result.scalars().all()
